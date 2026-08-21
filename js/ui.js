@@ -18,6 +18,41 @@ let tipPinned = false;
 let hoverTimer = null;
 let attrPage = 0;
 let autosellOpen = false;
+
+function canHoverPeek() {
+  return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+}
+
+function isMobileUi() {
+  return document.documentElement.dataset.ui === 'mobile';
+}
+
+function applyUiMode() {
+  const was = document.documentElement.dataset.ui;
+  window.__applyUiMode?.();
+  const now = document.documentElement.dataset.ui;
+  if (was === now) return;
+  if (now === 'mobile') setMobileView(document.body.dataset.mview || 'combat');
+  else {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.isoField?.resize());
+    });
+  }
+  if (lastTipAnchor && !document.getElementById('item-tip')?.hidden) positionItemTip(lastTipAnchor);
+}
+
+function setMobileView(view) {
+  const next = view === 'camp' || view === 'maps' ? view : 'combat';
+  document.body.dataset.mview = next;
+  document.querySelectorAll('#mobile-nav [data-mview]').forEach((b) => {
+    const on = b.dataset.mview === next;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-current', on ? 'page' : 'false');
+  });
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => window.isoField?.resize());
+  });
+}
 let mapActTab = 0;
 let mapActFollow = true;
 let knownMapUnlocks = null;
@@ -142,6 +177,8 @@ function initUI(state, updateCallback) {
   isoField = new IsoField(canvas);
   window.isoField = isoField;
   isoField.resize();
+  window.__applyUiMode?.();
+  if (isMobileUi()) setMobileView(document.body.dataset.mview || 'combat');
   bindEvents();
   lastCampSig = '';
   renderAll();
@@ -170,9 +207,23 @@ function bindEvents() {
   document.getElementById('btn-offline')?.addEventListener('click', showOfflineModal);
   document.getElementById('btn-skills')?.addEventListener('click', showSkillModal);
   document.getElementById('btn-characters')?.addEventListener('click', showCharacterModal);
-  document.getElementById('btn-shop')?.addEventListener('click', () => {
+  const openTownOrShop = () => {
     if (townUnlocked(gameState)) openTown();
     else showShopModal();
+  };
+  document.getElementById('btn-shop')?.addEventListener('click', openTownOrShop);
+  document.getElementById('btn-town-m')?.addEventListener('click', openTownOrShop);
+  document.getElementById('mobile-nav')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-mview]');
+    if (!btn) return;
+    setMobileView(btn.dataset.mview);
+  });
+  window.addEventListener('resize', applyUiMode);
+  window.addEventListener('orientationchange', applyUiMode);
+  window.visualViewport?.addEventListener('resize', () => {
+    applyUiMode();
+    window.isoField?.resize();
+    if (lastTipAnchor && !document.getElementById('item-tip')?.hidden) positionItemTip(lastTipAnchor);
   });
   document.getElementById('town-close')?.addEventListener('click', closeTown);
   document.addEventListener('keydown', (e) => {
@@ -180,6 +231,7 @@ function bindEvents() {
   });
   document.getElementById('town-overlay')?.addEventListener('click', onTownClick);
   document.getElementById('town-overlay')?.addEventListener('mouseover', (e) => {
+    if (!canHoverPeek()) return;
     const el = e.target.closest('[data-inv], [data-wh]');
     if (!el || el.contains(e.relatedTarget)) return;
     clearTimeout(hoverTimer);
@@ -189,6 +241,7 @@ function bindEvents() {
     }, 200);
   });
   document.getElementById('town-overlay')?.addEventListener('mouseout', (e) => {
+    if (!canHoverPeek()) return;
     const el = e.target.closest('[data-inv], [data-wh]');
     if (!el) return;
     const to = e.relatedTarget;
@@ -355,6 +408,7 @@ function bindEvents() {
   });
   const camp = document.getElementById('camp-panel');
   camp?.addEventListener('mouseover', (e) => {
+    if (!canHoverPeek()) return;
     const el = e.target.closest('[data-inv], [data-slot], [data-set-tip]');
     if (!el) return;
     if (el.contains(e.relatedTarget)) return;
@@ -365,6 +419,7 @@ function bindEvents() {
     }, 200);
   });
   camp?.addEventListener('mouseout', (e) => {
+    if (!canHoverPeek()) return;
     const el = e.target.closest('[data-inv], [data-slot], [data-set-tip]');
     if (!el) return;
     const to = e.relatedTarget;
@@ -374,12 +429,14 @@ function bindEvents() {
   });
   const modal = document.getElementById('modal');
   modal?.addEventListener('mouseover', (e) => {
+    if (!canHoverPeek()) return;
     const el = e.target.closest('[data-skill-tip]');
     if (!el || el.contains(e.relatedTarget)) return;
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(() => showSkillPeek(el), 80);
   });
   modal?.addEventListener('mouseout', (e) => {
+    if (!canHoverPeek()) return;
     const el = e.target.closest('[data-skill-tip]');
     if (!el) return;
     const to = e.relatedTarget;
@@ -388,12 +445,14 @@ function bindEvents() {
   });
   const combatSkills = document.getElementById('combat-skills');
   combatSkills?.addEventListener('mouseover', (e) => {
+    if (!canHoverPeek()) return;
     const el = e.target.closest('[data-skill-tip]');
     if (!el || el.contains(e.relatedTarget)) return;
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(() => showSkillPeek(el), 160);
   });
   combatSkills?.addEventListener('mouseout', (e) => {
+    if (!canHoverPeek()) return;
     const el = e.target.closest('[data-skill-tip]');
     if (!el) return;
     const to = e.relatedTarget;
@@ -455,6 +514,7 @@ function bindEvents() {
       }
       addLog({ type: 'info', text: `进入小秘境 ${hero.riftFloor} 层` });
       renderAll();
+      setMobileView('combat');
       return;
     }
     const map = MAPS.find(m => m.id === btn.dataset.map);
@@ -476,6 +536,7 @@ function bindEvents() {
       combatState.spawnTimer = 0.2;
     }
     renderAll();
+    setMobileView('combat');
   });
 }
 
@@ -1007,6 +1068,9 @@ function hideItemTip() {
   if (tip) {
     tip.hidden = true;
     tip.classList.remove('wide');
+    tip.style.bottom = '';
+    tip.style.right = '';
+    tip.style.width = '';
   }
   tipPinned = false;
 }
@@ -1014,6 +1078,19 @@ function hideItemTip() {
 function positionItemTip(anchor) {
   const tip = document.getElementById('item-tip');
   if (!tip || !anchor) return;
+  if (isMobileUi()) {
+    const nav = document.getElementById('mobile-nav');
+    const navH = nav ? nav.getBoundingClientRect().height : 52;
+    tip.style.left = '8px';
+    tip.style.right = '8px';
+    tip.style.width = 'auto';
+    tip.style.top = 'auto';
+    tip.style.bottom = `${navH + 8}px`;
+    return;
+  }
+  tip.style.right = '';
+  tip.style.bottom = '';
+  tip.style.width = '';
   const r = anchor.getBoundingClientRect();
   const tw = tip.offsetWidth || 320;
   const th = tip.offsetHeight || 220;
@@ -1071,7 +1148,7 @@ function showPeekTip(anchor) {
 function skillInspectHtml(skillId) {
   const hero = getActiveHero(gameState);
   const skill = SKILLS[hero.charId]?.[skillId];
-  if (!skill) return '<p class="hint">悬停或点击左侧技能查看说明。</p>';
+  if (!skill) return '<p class="hint">点击技能查看说明。</p>';
   const lv = hero.skillLevels[skillId] || 0;
   const stats = calcHeroStats(hero, { useCombatBuffs: true, buffs: combatState?.buffs || {} });
   const parts = skillLevelParts(hero, skillId, stats);
@@ -2322,8 +2399,16 @@ function onTownClick(e) {
   }
   const cell = e.target.closest('[data-wh], [data-inv]');
   if (cell && !e.target.closest('[data-act]')) {
-    pickTownItem(cell.dataset.wh || cell.dataset.inv, e);
+    const uid = cell.dataset.wh || cell.dataset.inv;
+    pickTownItem(uid, e);
     renderTown();
+    tipPinned = true;
+    if (uid) {
+      const again = document.querySelector(
+        `[data-wh="${CSS.escape(uid)}"], #town-overlay [data-inv="${CSS.escape(uid)}"]`
+      );
+      if (again) showPeekTip(again);
+    }
     return;
   }
   const btn = e.target.closest('[data-act]');

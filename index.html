@@ -2,18 +2,51 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <title>暗影纪元：放置编年史</title>
-  <link rel="stylesheet" href="css/style.css?v=65">
+  <script>
+  (function () {
+    function detectMobileUi() {
+      const w = window.innerWidth || document.documentElement.clientWidth || 0;
+      const h = window.innerHeight || document.documentElement.clientHeight || 0;
+      const short = Math.min(w, h);
+      const coarse = window.matchMedia('(pointer: coarse)').matches;
+      const noHover = window.matchMedia('(hover: none)').matches;
+      const ua = navigator.userAgent || '';
+      const phone = /Android.*Mobile|iPhone|iPod|webOS|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua)
+        && !/iPad|Tablet/i.test(ua);
+      const tablet = /iPad|Tablet|Android(?!.*Mobile)/i.test(ua)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (phone) return true;
+      if (w <= 900) return true;
+      if ((tablet || coarse || noHover) && w < 1100) return true;
+      if ((coarse || noHover) && short < 700) return true;
+      return false;
+    }
+    function applyUiMode() {
+      const mobile = detectMobileUi();
+      document.documentElement.dataset.ui = mobile ? 'mobile' : 'desktop';
+    }
+    applyUiMode();
+    window.__detectMobileUi = detectMobileUi;
+    window.__applyUiMode = applyUiMode;
+  })();
+  </script>
+  <link rel="stylesheet" href="css/style.css?v=67">
 </head>
-<body>
+<body data-mview="combat">
   <div class="app">
     <header class="header">
       <div class="logo">
         <h1>暗影纪元</h1>
         <span class="subtitle">放置编年史 · 45° 等距挂机</span>
       </div>
-      <button type="button" id="btn-reset-save" class="btn btn-danger">还原数据</button>
+      <div class="header-actions">
+        <button type="button" id="btn-town-m" class="btn-head mobile-only">据点</button>
+        <button type="button" id="btn-reset-save" class="btn btn-danger">还原数据</button>
+      </div>
     </header>
 
     <main class="main-grid">
@@ -163,6 +196,12 @@
     </footer>
   </div>
 
+  <nav id="mobile-nav" class="mobile-nav" aria-label="手机导航">
+    <button type="button" data-mview="combat" class="on">战场</button>
+    <button type="button" data-mview="camp">营地</button>
+    <button type="button" data-mview="maps">地图</button>
+  </nav>
+
   <div id="town-overlay" class="town-overlay">
     <div class="town-sheet">
       <nav id="town-nav" class="town-map" aria-label="据点地图"></nav>
@@ -170,7 +209,7 @@
         <div class="town-head">
           <div>
             <h2 id="town-title">荒村据点</h2>
-            <p class="hint">出征未暂停。左侧地图点建筑，右侧办理。</p>
+            <p class="hint">出征未暂停。点地图建筑办理。</p>
           </div>
           <button type="button" class="btn btn-town-leave" id="town-close">返回出征</button>
         </div>
@@ -190,12 +229,12 @@
     </div>
   </div>
 
-  <script src="js/data.js?v=65"></script>
-  <script src="js/catalog.js?v=65"></script>
-  <script src="js/combat.js?v=65"></script>
-  <script src="js/iso.js?v=65"></script>
-  <script src="js/game.js?v=65"></script>
-  <script src="js/ui.js?v=65"></script>
-  <script src="js/main.js?v=65"></script>
+  <script src="js/data.js?v=67"></script>
+  <script src="js/catalog.js?v=67"></script>
+  <script src="js/combat.js?v=67"></script>
+  <script src="js/iso.js?v=67"></script>
+  <script src="js/game.js?v=67"></script>
+  <script src="js/ui.js?v=67"></script>
+  <script src="js/main.js?v=67"></script>
 </body>
 </html>
