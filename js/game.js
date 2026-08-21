@@ -1,17 +1,16 @@
-import {
-  CHARACTERS, SKILLS, MAPS, BOSSES, QUALITY, AFFIX_POOL, LEGENDARY_ITEMS, UNIQUE_ITEMS,
-  BASE_ITEMS, QUALITY_WEIGHTS, SETS, MORPHS, expForLevel, SLOTS, DEFAULT_SKILLS,
-} from './data.js';
-import { calcHeroStats, calcDPS, getMap } from './combat.js';
-
 const SAVE_KEY = 'shadow-era-save-v11';
 const OFFLINE_MAX_HOURS = 12;
-export const KILLS_FOR_BOSS = 80;
-export const INV_CAP = 64;
+const KILLS_FOR_BOSS = 180;
+const INV_CAP = 64;
 
-const Q_RANK = { normal: 0, magic: 1, rare: 2, set: 3, unique: 4, legendary: 5, ancient: 6 };
+const Q_RANK = { normal: 0, magic: 1, rare: 2, set: 3, unique: 4, legendary: 5, ancient: 6, ancientSet: 6 };
 
-export function createNewGame() {
+function isAncientItem(itemOrQ) {
+  const q = itemOrQ && typeof itemOrQ === 'object' ? itemOrQ.quality : itemOrQ;
+  return q === 'ancient' || q === 'ancientSet';
+}
+
+function createNewGame() {
   return {
     gold: 800,
     unlockedChars: ['berserker', 'amazon'],
@@ -27,72 +26,259 @@ export function createNewGame() {
     autoSell: {
       enabled: true,
       maxQuality: 'magic',
-      keepSet: true,
       keepBetter: true,
+      minKeepLevel: 0,
+      action: 'sell',
     },
+    junkQuality: 'magic',
     invFilter: 'all',
+    invSort: { rarity: true, ilvl: true, score: true },
+    bagExpands: 0,
+    hpPotions: 8,
+    manaPotions: 6,
+    potionTier: 1,
+    potionAuto: { buyHp: true, buyMana: true, useHp: true, useMana: true, keepHp: 20, keepMana: 16 },
+    mats: { metal: 0, cloth: 0, crystal: 0 },
+    shards: 0,
+    mapKills: {},
+    mapsEntered: { wasteland: true },
+    town: createTownState(),
   };
 }
 
-export function createHero(charId, level = 1, equipment = {}) {
+function createTownState() {
+  return {
+    unlocked: false,
+    warehouse: [],
+    warehouseCap: WAREHOUSE_BASE_CAP,
+    hallLevel: 1,
+  };
+}
+
+function createHero(charId, level = 1, equipment = {}) {
   const hero = {
     charId, level, exp: 0,
     skillPoints: Math.max(0, level + 2),
-    skillLevels: seedSkills(charId),
+    skillLevels: seedSkills(charId, level),
     equippedSkills: [...(DEFAULT_SKILLS[charId] || [])],
     skillPriorities: [...(DEFAULT_SKILLS[charId] || [])],
+    skillEnabled: {},
     equipment: {},
     currentMap: 'wasteland',
     currentHp: null,
     kills: 0, combo: 0, deaths: 0,
     isDead: false, respawnTimer: 0,
+    train: { unlocked: {}, lv: {} },
   };
   for (const slot of SLOTS) {
     if (equipment[slot]) hero.equipment[slot] = equipment[slot];
   }
   hero.currentHp = calcHeroStats(hero).maxHp;
+  clampHeroResource(hero);
   return hero;
 }
 
-function seedSkills(charId) {
-  const defaults = DEFAULT_SKILLS[charId] || [];
+function seedSkills(charId, _level = 1) {
   const levels = {};
-  for (const id of defaults) {
-    const skill = SKILLS[charId]?.[id];
-    if (skill && !skill.prereq) levels[id] = 1;
-  }
-  for (const id of defaults) {
-    const skill = SKILLS[charId]?.[id];
-    if (skill?.prereq && levels[skill.prereq]) levels[id] = 1;
-  }
+  const grant = (skillId) => {
+    const skill = SKILLS[charId]?.[skillId];
+    if (!skill) return;
+    if (skill.prereq) grant(skill.prereq);
+    if ((levels[skillId] || 0) < 1) levels[skillId] = 1;
+  };
+  for (const id of DEFAULT_SKILLS[charId] || []) grant(id);
   return levels;
+}
+
+function ensureDefaultSkills(hero) {
+  if (!hero) return;
+  hero.skillLevels = hero.skillLevels || {};
+  const seeded = seedSkills(hero.charId, hero.level);
+  for (const [id, lv] of Object.entries(seeded)) {
+    if ((hero.skillLevels[id] || 0) < lv) hero.skillLevels[id] = lv;
+  }
+}
+
+function ensureEquippedSkillLevels(hero) {
+  if (!hero) return;
+  hero.skillLevels = hero.skillLevels || {};
+  hero.skillEnabled = hero.skillEnabled || {};
+  ensureDefaultSkills(hero);
+  const defaults = DEFAULT_SKILLS[hero.charId] || [];
+  const extra = (hero.equippedSkills || []).filter(id => !defaults.includes(id));
+  hero.equippedSkills = [...defaults, ...extra];
+  if (!hero.skillPriorities?.length) hero.skillPriorities = [...hero.equippedSkills];
+  else {
+    const rest = hero.skillPriorities.filter(id => !defaults.includes(id));
+    hero.skillPriorities = [...defaults, ...rest];
+  }
+  ensureAuraPicks(hero);
+}
+
+function ensureAuraPicks(hero) {
+  const tree = SKILLS[hero.charId] || {};
+  const slots = new Set(Object.values(tree).map(s => s.auraSlot).filter(Boolean));
+  if (!slots.size) return;
+  hero.auraPick = hero.auraPick || {};
+  hero.skillEnabled = hero.skillEnabled || {};
+  const prefer = ['fanaticism', 'concentration', 'holyShock', 'might', 'holyFire', 'salvation', 'defiance', 'vigor', 'resistFire'];
+  for (const slot of slots) {
+    const ids = auraSlotSkills(hero, slot);
+    if (!ids.length) continue;
+    if (!hero.auraPick[slot] || !ids.includes(hero.auraPick[slot])) {
+      hero.auraPick[slot] = prefer.find(id => ids.includes(id)) || ids[ids.length - 1];
+    }
+    for (const id of ids) {
+      hero.skillEnabled[id] = id === hero.auraPick[slot];
+    }
+  }
+}
+
+function grantSkillWithPrereqs(hero, skillId) {
+  const skill = SKILLS[hero.charId]?.[skillId];
+  if (!skill) return;
+  if (skill.prereq) grantSkillWithPrereqs(hero, skill.prereq);
+  if ((hero.level || 1) < (skill.reqLevel || 1)) return;
+  if ((hero.skillLevels[skillId] || 0) < 1) hero.skillLevels[skillId] = 1;
+}
+
+function skillLearnCost(hero, skillId) {
+  const skill = SKILLS[hero.charId]?.[skillId];
+  if (!skill) return { gold: 0 };
+  const cur = hero.skillLevels?.[skillId] || 0;
+  const next = cur + 1;
+  const req = skill.reqLevel || 1;
+  const unlock = cur === 0;
+  const gold = Math.floor(16 * next * next * (0.5 + req * 0.055) * (unlock ? 1.65 : 1));
+  let crystal = 0;
+  let metal = 0;
+  let cloth = 0;
+  if (unlock && req >= 12) crystal += 1;
+  if (unlock && req >= 18) crystal += 1;
+  if (next >= 4) crystal += Math.floor((next - 2) / 3);
+  if (req >= 24 && next >= 3) crystal += 1;
+  if (next >= 6) metal += Math.ceil((next - 5) / 2);
+  if (next >= 8) cloth += Math.ceil((next - 7) / 2);
+  return { gold, crystal, metal, cloth };
+}
+
+function canLearnSkill(hero, skillId, state) {
+  const skill = SKILLS[hero.charId]?.[skillId];
+  if (!skill) return { ok: false, reason: '未知技能' };
+  const current = hero.skillLevels[skillId] || 0;
+  if ((hero.skillPoints || 0) <= 0) return { ok: false, reason: '没有技能点' };
+  if (current >= skill.maxLevel) return { ok: false, reason: '已满级' };
+  if (skill.prereq && !(hero.skillLevels[skill.prereq] > 0)) {
+    const pre = SKILLS[hero.charId][skill.prereq];
+    return { ok: false, reason: `需要 ${pre?.name || skill.prereq}` };
+  }
+  if ((hero.level || 1) < (skill.reqLevel || 1)) {
+    return { ok: false, reason: `需要角色 ${skill.reqLevel} 级` };
+  }
+  const cost = skillLearnCost(hero, skillId);
+  if (state) {
+    const why = canPayCost(state, cost);
+    if (why) return { ok: false, reason: why, cost };
+  }
+  return { ok: true, cost };
 }
 
 function createNamedItem(id) {
   const def = [...UNIQUE_ITEMS, ...LEGENDARY_ITEMS].find(i => i.id === id);
   if (!def) return null;
-  return cloneItem(def);
+  const item = cloneItem(def);
+  item.itemLevel = 8;
+  item.reqLevel = 1;
+  return rollItemAffixes(item, 8);
+}
+
+function uid() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
 function cloneItem(def) {
   return {
     ...def,
-    uid: crypto.randomUUID(),
+    uid: uid(),
     locked: false,
     affixes: (def.affixes || []).map(a => ({ ...a })),
+    exclusiveAffix: def.exclusiveAffix ? { ...def.exclusiveAffix } : undefined,
   };
 }
 
-export function loadGame() {
+function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return createNewGame();
     const state = JSON.parse(raw);
     state.lastSaveTime = state.lastSaveTime || Date.now();
     if (!state.autoSell) {
-      state.autoSell = { enabled: true, maxQuality: 'magic', keepSet: true, keepBetter: true };
+      state.autoSell = { enabled: true, maxQuality: 'magic', keepBetter: true, minKeepLevel: 0 };
     }
-    if (!state.heroes.amazon && state.unlockedChars.includes('amazon')) {
+    if (state.autoSell.minKeepLevel == null) state.autoSell.minKeepLevel = 0;
+    if (!state.autoSell.action) state.autoSell.action = 'sell';
+    if (state.autoSell.maxQuality === 'legendary' || state.autoSell.maxQuality === 'set') {
+      state.autoSell.maxQuality = 'magic';
+    }
+    if (!state.junkQuality || state.junkQuality === 'ancient' || state.junkQuality === 'ancientSet') {
+      state.junkQuality = 'magic';
+    }
+    if (state.bagExpands == null) state.bagExpands = 0;
+    state.invSort = normalizeInvSort(state.invSort);
+    if (state.invFilter === 'set' || state.invFilter === 'rare') state.invFilter = 'all';
+    ensureMats(state);
+    if ((state.shards || 0) > 0) {
+      state.mats.metal += state.shards;
+      state.shards = 0;
+    }
+    if (!state.mapKills) state.mapKills = {};
+    if (!state.bossesKilled) state.bossesKilled = {};
+    if (!state.mapsEntered) {
+      state.mapsEntered = {};
+      for (const h of Object.values(state.heroes || {})) {
+        if (h.currentMap) state.mapsEntered[h.currentMap] = true;
+      }
+      for (const m of MAPS) {
+        if (mapUnlocked(state, m)) state.mapsEntered[m.id] = true;
+      }
+    }
+    if (state.bossesKilled?.visna) grantActClears(state, 1);
+    if (state.bossesKilled?.duriel) grantActClears(state, 2);
+    if (state.bossesKilled?.council) grantActClears(state, 3);
+    if (state.bossesKilled?.baal) grantActClears(state, 5);
+    if (!state.skillEnableResetV1) {
+      state.skillEnableResetV1 = true;
+      for (const h of Object.values(state.heroes || {})) {
+        h.skillEnabled = {};
+      }
+    }
+    for (const h of Object.values(state.heroes || {})) {
+      ensureTrain(h);
+      if ((h.whetstone || 0) > 0) {
+        const lv = Math.min(10, Math.round((h.whetstone || 0) / 0.02));
+        h.train.unlocked.attackSpeed = true;
+        h.train.lv.attackSpeed = Math.max(h.train.lv.attackSpeed || 0, lv);
+        h.whetstone = 0;
+      }
+      if (h.currentMap === 'rift') {
+        ensureRiftHero(h);
+        if (!riftUnlocked(state)) h.currentMap = 'wasteland';
+      } else {
+        if (h.currentMap && !MAPS.some(m => m.id === h.currentMap)) h.currentMap = 'wasteland';
+        const cm = getMap(h.currentMap);
+        if (cm && !mapUnlocked(state, cm)) h.currentMap = 'wasteland';
+      }
+      ensureRiftHero(h);
+      for (const it of Object.values(h.equipment || {})) ensureItemAffixes(it, h.level || 1);
+      ensureEquippedSkillLevels(h);
+      clampHeroResource(h);
+    }
+    for (const it of state.inventory || []) ensureItemAffixes(it, 1);
+    ensurePotionState(state);
+    ensureTown(state);
+    if (isMapCleared(state, TOWN_UNLOCK_MAP)) state.town.unlocked = true;
+    if (!state.heroes.amazon && (state.unlockedChars || []).includes('amazon')) {
       state.heroes.amazon = createHero('amazon', 1);
     }
     return state;
@@ -101,28 +287,221 @@ export function loadGame() {
   }
 }
 
-export function saveGame(state) {
+function inferWeaponClass(item) {
+  if (!item || item.slot !== 'weapon') return null;
+  if (item.weaponClass) return item.weaponClass;
+  const n = item.name || '';
+  if (/弓|弩/.test(n)) return 'bow';
+  if (/标枪|投枪/.test(n)) return 'javelin';
+  if (/权杖/.test(n)) return 'melee';
+  if (/杖|珠|图腾|法器|魔杖/.test(n)) return 'caster';
+  if (/爪|拳刃/.test(n)) return 'claw';
+  return 'melee';
+}
+
+function skillWeaponReady(hero, skill) {
+  const need = skill?.reqWeapon;
+  if (!need) return { ok: true };
+  const have = inferWeaponClass(hero.equipment?.weapon);
+  if (have === need) return { ok: true };
+  if (need === 'melee' && (have === 'melee' || have === 'claw')) return { ok: true };
+  return { ok: false, need, label: WEAPON_CLASS_NAMES[need] || need };
+}
+
+let savePaused = false;
+
+function saveGame(state) {
+  if (savePaused || !state) return;
   state.lastSaveTime = Date.now();
   localStorage.setItem(SAVE_KEY, JSON.stringify(state));
 }
 
-export function getActiveHero(state) {
-  return state.heroes[state.activeCharId];
+function resetSave() {
+  savePaused = true;
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('shadow-era-save')) keys.push(k);
+  }
+  keys.forEach(k => localStorage.removeItem(k));
+  try { sessionStorage.removeItem(SAVE_KEY); } catch {}
+  localStorage.setItem(SAVE_KEY, JSON.stringify(createNewGame()));
 }
 
-export function getCurrentMap(hero) {
-  return getMap(hero.currentMap);
+function getActiveHero(state) {
+  return state.heroes[state.activeCharId] || state.heroes.berserker || Object.values(state.heroes || {})[0];
 }
 
-export function mapUnlocked(state, map) {
-  if (!map.unlockBoss) return true;
-  return !!state.bossesKilled[map.unlockBoss];
+function ensureRiftHero(hero) {
+  if (!hero) return hero;
+  if (!hero.riftFloor || hero.riftFloor < 1) hero.riftFloor = 1;
+  if (hero.riftProgress == null || hero.riftProgress < 0) hero.riftProgress = 0;
+  if (hero.riftBest == null) hero.riftBest = 0;
+  if (hero.riftBossReady == null) hero.riftBossReady = false;
+  return hero;
 }
 
-export function rollQuality(kindBonus = 1) {
+function riftUnlocked(state) {
+  const ws = MAPS.find(m => m.id === 'worldstone');
+  return !!ws && mapUnlocked(state, ws);
+}
+
+function getCurrentMap(hero) {
+  if (hero?.currentMap === 'rift') {
+    ensureRiftHero(hero);
+    return makeRiftMap(hero.riftFloor);
+  }
+  return getMap(hero?.currentMap);
+}
+
+function mapClearProgress(state, map) {
+  if (map?.isRift) {
+    const hero = getActiveHero(state);
+    ensureRiftHero(hero);
+    const need = riftProgressNeed(hero.riftFloor);
+    const have = hero.riftBossReady ? need : Math.min(need, hero.riftProgress || 0);
+    return { have, need, pct: Math.min(100, Math.floor((have / Math.max(1, need)) * 100)), ready: !!hero.riftBossReady };
+  }
+  const have = state.mapKills?.[map.id] || 0;
+  const need = mapProgressNeed(map);
+  return { have, need, pct: Math.min(100, Math.floor((have / Math.max(1, need)) * 100)), ready: have >= need };
+}
+
+function onRiftBossKill(state, hero, monster) {
+  ensureRiftHero(hero);
+  const cleared = hero.riftFloor;
+  hero.riftBest = Math.max(hero.riftBest || 0, cleared);
+  hero.riftFloor = cleared + 1;
+  hero.riftProgress = 0;
+  hero.riftBossReady = false;
+  const loot = [];
+  const lv = monster?.level || 88;
+  loot.push(generateLoot(lv, null, 'riftBoss', hero.charId));
+  if (Math.random() < 0.45) loot.push(generateLoot(lv, null, 'riftBoss', hero.charId));
+  if (Math.random() < 0.12) loot.push(generateLoot(lv, 'ancient', 'riftBoss', hero.charId));
+  return { cleared, next: hero.riftFloor, loot };
+}
+
+function grantActClears(state, act) {
+  state.mapKills = state.mapKills || {};
+  for (const m of MAPS) {
+    if (m.act === act) {
+      state.mapKills[m.id] = Math.max(state.mapKills[m.id] || 0, mapProgressNeed(m));
+    }
+  }
+}
+
+function mapProgressNeed(map) {
+  if (!map) return 140;
+  if (map.isBoss) return map.bossKills || map.clearKills || 50;
+  return map.clearKills || 140;
+}
+
+function mapUnlocked(state, map) {
+  if (!map) return false;
+  if (map.isRift || map.id === 'rift') return riftUnlocked(state);
+  state.bossesKilled = state.bossesKilled || {};
+  if (map.unlockBoss && !state.bossesKilled[map.unlockBoss]) return false;
+  if (map.unlockPrev) {
+    const prev = MAPS.find(m => m.id === map.unlockPrev);
+    if (prev && prev.act === map.act) {
+      const need = mapProgressNeed(prev);
+      if ((state.mapKills?.[map.unlockPrev] || 0) < need) return false;
+    }
+  }
+  return true;
+}
+
+function isMapCleared(state, mapId) {
+  const map = MAPS.find(m => m.id === mapId);
+  return !!map && mapClearProgress(state, map).ready;
+}
+
+function ensureTown(state) {
+  if (!state.town) state.town = createTownState();
+  if (!Array.isArray(state.town.warehouse)) state.town.warehouse = [];
+  if (state.town.warehouseCap == null) state.town.warehouseCap = WAREHOUSE_BASE_CAP;
+  if (!state.town.hallLevel) state.town.hallLevel = 1;
+  for (const it of state.town.warehouse) ensureItemAffixes(it, 1);
+  return state.town;
+}
+
+function townUnlocked(state) {
+  ensureTown(state);
+  return !!state.town.unlocked;
+}
+
+function maybeUnlockTown(state) {
+  ensureTown(state);
+  if (state.town.unlocked) return false;
+  if (!isMapCleared(state, TOWN_UNLOCK_MAP)) return false;
+  state.town.unlocked = true;
+  return true;
+}
+
+function getWarehouseCap(state) {
+  return ensureTown(state).warehouseCap || WAREHOUSE_BASE_CAP;
+}
+
+function stashToWarehouse(state, uid) {
+  ensureTown(state);
+  if (!townUnlocked(state)) return { ok: false, reason: '据点未解锁' };
+  if (state.town.warehouse.length >= getWarehouseCap(state)) {
+    return { ok: false, reason: '仓库已满' };
+  }
+  const idx = state.inventory.findIndex(i => i.uid === uid);
+  if (idx < 0) return { ok: false, reason: '不在背包中' };
+  const item = state.inventory.splice(idx, 1)[0];
+  state.town.warehouse.push(item);
+  return { ok: true, item };
+}
+
+function withdrawFromWarehouse(state, uid) {
+  ensureTown(state);
+  if (state.inventory.length >= getInvCap(state)) return { ok: false, reason: '背包已满' };
+  const idx = state.town.warehouse.findIndex(i => i.uid === uid);
+  if (idx < 0) return { ok: false, reason: '不在仓库中' };
+  const item = state.town.warehouse.splice(idx, 1)[0];
+  state.inventory.push(item);
+  return { ok: true, item };
+}
+
+function isChapterBossReady(state, map) {
+  if (!map?.isBoss || !map.bossId) return false;
+  return (state.mapKills?.[map.id] || 0) >= mapProgressNeed(map);
+}
+
+function chapterBossAppearChance(state, map, pity = 0) {
+  if (!isChapterBossReady(state, map)) return 0;
+  if (!state.bossesKilled?.[map.bossId]) return 1;
+  return Math.min(1, 0.1 + Math.max(0, pity) * 0.05);
+}
+
+function mapClearFactor(state, map) {
+  if (map?.isRift) return Math.min(1.5, 0.9 + Math.max(0, (map.riftFloor || 1) - 1) * 0.05);
+  const need = map.clearKills || 140;
+  return (state.mapKills?.[map.id] || 0) / need;
+}
+
+function mapUnlockHint(state, map) {
+  if (map?.isRift || map?.id === 'rift') return '解锁世界之石要塞后开放';
+  state.bossesKilled = state.bossesKilled || {};
+  if (map.unlockBoss && !state.bossesKilled[map.unlockBoss]) {
+    const b = BOSSES[map.unlockBoss];
+    return `需击败 ${b?.name || map.unlockBoss}（第 ${map.act - 1} 章）`;
+  }
+  if (map.unlockPrev) {
+    const prev = MAPS.find(m => m.id === map.unlockPrev);
+    const p = mapClearProgress(state, prev);
+    return `${prev.name} ${Math.min(p.have, p.need)}/${p.need}`;
+  }
+  return '';
+}
+
+function rollQuality(kindBonus = 1) {
   const weights = QUALITY_WEIGHTS.map(q => {
     let w = q.weight;
-    if (['unique', 'legendary', 'ancient', 'set'].includes(q.quality)) w *= kindBonus;
+    if (['unique', 'legendary', 'ancient', 'ancientSet', 'set'].includes(q.quality)) w *= kindBonus;
     return { ...q, weight: w };
   });
   const total = weights.reduce((s, q) => s + q.weight, 0);
@@ -149,85 +528,602 @@ function maybeMorph(item) {
   return item;
 }
 
-export function generateLoot(mapLevel, forceQuality = null, kind = 'normal') {
-  const kindBonus = kind === 'rare' || kind === 'rareBoss' ? 3 : kind === 'elite' ? 1.8 : kind === 'actBoss' || kind === 'boss' ? 4 : 1;
+function itemLevelOf(itemOrLevel, fallback = 1) {
+  if (itemOrLevel && typeof itemOrLevel === 'object') {
+    return Math.max(1, itemOrLevel.itemLevel || fallback);
+  }
+  return Math.max(1, itemOrLevel || fallback);
+}
+
+function clampItemLevel(n) {
+  return Math.max(1, Math.min(99, Math.round(n || 1)));
+}
+
+function preferredAffixTier(ilvl) {
+  const lv = clampItemLevel(ilvl);
+  return 15 - (lv / 99) * 14;
+}
+
+function affixTierWeight(ilvl, tier, favorBest = false) {
+  const lv = clampItemLevel(ilvl);
+  const preferred = preferredAffixTier(lv);
+  const dist = Math.abs(tier - preferred);
+  let w = Math.pow(0.64, dist);
+  w *= 1 + ((16 - tier) / 15) * (lv / 99) * 1.8;
+  if (tier === 1) w *= 0.25 + (lv / 99) * 2.6;
+  if (tier === 15) w = Math.max(w, 0.045 + (1 - lv / 99) * 0.08);
+  if (favorBest) w *= (16 - tier) / 6;
+  return Math.max(0.008, w);
+}
+
+function rollAffixTier(ilvl, favorBest = false) {
+  const weights = [];
+  let total = 0;
+  for (let t = 1; t <= AFFIX_TIER_MAX; t++) {
+    const w = affixTierWeight(ilvl, t, favorBest);
+    weights.push(w);
+    total += w;
+  }
+  let r = Math.random() * total;
+  for (let t = 1; t <= AFFIX_TIER_MAX; t++) {
+    r -= weights[t - 1];
+    if (r <= 0) return t;
+  }
+  return AFFIX_TIER_MAX;
+}
+
+function t1AffixChancePct(ilvl) {
+  let t1 = 0;
+  let total = 0;
+  for (let t = 1; t <= AFFIX_TIER_MAX; t++) {
+    const w = affixTierWeight(ilvl, t, false);
+    total += w;
+    if (t === 1) t1 = w;
+  }
+  return Math.round((t1 / total) * 1000) / 10;
+}
+
+function affixValueAtTier(def, tier) {
+  if (!def) return 0;
+  const min = def.min;
+  const max = def.max;
+  const t = Math.max(1, Math.min(AFFIX_TIER_MAX, tier));
+  if (max <= min) return min;
+  const u = (AFFIX_TIER_MAX - t) / (AFFIX_TIER_MAX - 1);
+  return Math.max(min, Math.round(min + (max - min) * u));
+}
+
+function affixTierFromValue(def, value) {
+  if (!def) return AFFIX_TIER_MAX;
+  const min = def.min;
+  const max = def.max;
+  if (max <= min) return AFFIX_TIER_MAX;
+  const u = (value - min) / (max - min + 1e-9);
+  const idx = Math.min(AFFIX_TIER_MAX - 1, Math.max(0, Math.floor(u * AFFIX_TIER_MAX)));
+  return AFFIX_TIER_MAX - idx;
+}
+
+function maxAffixTierForItemLevel(ilvl) {
+  return Math.max(1, Math.min(AFFIX_TIER_MAX, Math.round(preferredAffixTier(ilvl))));
+}
+
+function itemBaseCapScale(ilvl) {
+  const lv = clampItemLevel(ilvl);
+  return 0.5 + lv * 0.022 + (lv * lv) / 2400;
+}
+
+function scaleItemBase(listed, ilvl) {
+  if (!listed) return 0;
+  return Math.max(1, Math.round(listed * itemBaseCapScale(ilvl)));
+}
+
+function namedItemDef(item) {
+  if (!item?.id) return null;
+  return [...UNIQUE_ITEMS, ...LEGENDARY_ITEMS].find(i => i.id === item.id) || null;
+}
+
+function refreshItemBases(item) {
+  if (!item) return item;
+  const named = namedItemDef(item);
+  if (named?.baseDamage) item.listedDamage = named.baseDamage;
+  if (named?.armor) item.listedArmor = named.armor;
+  if (named?.attackSpeed) item.listedAttackSpeed = named.attackSpeed;
+  const ilvl = item.itemLevel || 1;
+  const scaleNow = itemBaseCapScale(ilvl);
+  if (item.listedDamage == null && item.baseDamage) {
+    item.listedDamage = Math.max(1, Math.round(item.baseDamage / Math.max(0.45, scaleNow)));
+  }
+  if (item.listedArmor == null && item.armor) {
+    item.listedArmor = Math.max(1, Math.round(item.armor / Math.max(0.45, scaleNow)));
+  }
+  const iasScale = 0.82 + (ilvl / 99) * 0.55;
+  if (item.listedAttackSpeed == null && item.attackSpeed) {
+    item.listedAttackSpeed = item.attackSpeed / Math.max(0.5, iasScale);
+  }
+  if (item.listedDamage) item.baseDamage = scaleItemBase(item.listedDamage, ilvl);
+  if (item.listedArmor) item.armor = scaleItemBase(item.listedArmor, ilvl);
+  if (item.listedAttackSpeed) {
+    item.attackSpeed = Math.round(item.listedAttackSpeed * iasScale * 1000) / 1000;
+  }
+  return item;
+}
+
+function stampItemLevel(item, monsterLevel = 1) {
+  if (!item) return item;
+  if (!item.itemLevel) item.itemLevel = clampItemLevel(monsterLevel);
+  if (!item.reqLevel) item.reqLevel = Math.max(1, Math.min(99, item.itemLevel - 4));
+  return item;
+}
+
+function allAffixDefs() {
+  return AFFIX_POOL.prefix.concat(AFFIX_POOL.suffix);
+}
+
+function affixKind(affixOrDef) {
+  if (!affixOrDef) return 'attr';
+  if (affixOrDef.kind) return affixOrDef.kind;
+  if (affixOrDef.stat && AFFIX_KIND[affixOrDef.stat]) return AFFIX_KIND[affixOrDef.stat];
+  const def = findAffixDef(affixOrDef);
+  if (def?.kind) return def.kind;
+  if (def?.stat && AFFIX_KIND[def.stat]) return AFFIX_KIND[def.stat];
+  return 'attr';
+}
+
+function slotAffixMode(slot) {
+  if (AFFIX_SLOT_ATK.includes(slot)) return 'atk';
+  if (AFFIX_SLOT_DEF.includes(slot)) return 'def';
+  return 'flex';
+}
+
+function affixKindCounts(affixes) {
+  let atk = 0;
+  let def = 0;
+  for (const a of affixes || []) {
+    const k = affixKind(a);
+    if (k === 'atk') atk += 1;
+    else if (k === 'def') def += 1;
+  }
+  return { atk, def };
+}
+
+function affixAllowedOnItem(def, item, currentAffixes) {
+  if (!def || !item) return true;
+  const k = affixKind(def);
+  const mode = slotAffixMode(item.slot);
+  if (mode === 'atk' && k === 'def') return false;
+  if (mode === 'def' && k === 'atk') return false;
+  if (mode === 'flex') {
+    const { atk, def: defs } = affixKindCounts(currentAffixes);
+    if (k === 'atk' && atk >= AFFIX_KIND_CAP) return false;
+    if (k === 'def' && defs >= AFFIX_KIND_CAP) return false;
+  }
+  return true;
+}
+
+function findAffixDef(affix) {
+  if (!affix) return null;
+  const exclusive = (typeof EXCLUSIVE_AFFIX_POOL !== 'undefined' ? EXCLUSIVE_AFFIX_POOL : [])
+    .find(d => d.stat === affix.stat || d.id === affix.id || d.name === affix.name);
+  if (exclusive) return exclusive;
+  return allAffixDefs().find(d => d.stat === affix.stat || d.id === affix.id || d.name === affix.name) || null;
+}
+
+function affixTier(value, min, max) {
+  if (max <= min) return AFFIX_TIER_MAX;
+  const idx = Math.min(AFFIX_TIER_MAX - 1, Math.floor(((value - min) / (max - min + 1e-9)) * AFFIX_TIER_MAX));
+  return AFFIX_TIER_MAX - idx;
+}
+
+function affixBounds(def) {
+  return {
+    min: affixValueAtTier(def, AFFIX_TIER_MAX),
+    max: affixValueAtTier(def, 1),
+  };
+}
+
+function makeRolledAffix(def, itemOrLevel, maxed) {
+  const ilvl = itemLevelOf(itemOrLevel);
+  const { min, max } = affixBounds(def);
+  const forceT1 = maxed === true || maxed?.forceT1;
+  const favor = maxed === true || maxed?.favorBest;
+  const tier = forceT1 ? 1 : rollAffixTier(ilvl, !!favor);
+  const value = Math.min(max, Math.max(min, affixValueAtTier(def, tier)));
+  return {
+    id: def.id,
+    stat: def.stat,
+    name: def.name,
+    value,
+    min,
+    max,
+    tier: affixTierFromValue(def, value),
+    suffix: def.suffix || '',
+    exclusive: !!def.exclusive || !!maxed?.exclusive,
+    kind: affixKind(def),
+  };
+}
+
+function wantsExclusiveAffix(quality) {
+  return quality === 'legendary' || quality === 'ancient';
+}
+
+function pickExclusiveDef(item) {
+  const pool = (EXCLUSIVE_AFFIX_POOL || []).filter(d => affixAllowedOnItem(d, item, item?.affixes || []));
+  const use = pool.length ? pool : (EXCLUSIVE_AFFIX_POOL || []);
+  return use[Math.floor(Math.random() * use.length)] || use[0];
+}
+
+function stampExclusiveAffix(item, forceT1) {
+  if (!item || !wantsExclusiveAffix(item.quality)) {
+    if (item && item.quality !== 'legendary' && item.quality !== 'ancient') delete item.exclusiveAffix;
+    return item;
+  }
+  if (item.exclusiveAffix?.stat) {
+    stampAffixMeta(item.exclusiveAffix, item);
+    item.exclusiveAffix.exclusive = true;
+    if (forceT1) {
+      const def = EXCLUSIVE_AFFIX_POOL.find(d => d.id === item.exclusiveAffix.id || d.stat === item.exclusiveAffix.stat);
+      if (def) {
+        item.exclusiveAffix.value = affixValueAtTier(def, 1);
+        item.exclusiveAffix.tier = 1;
+      }
+    }
+    return item;
+  }
+  const def = pickExclusiveDef(item);
+  if (!def) return item;
+  item.exclusiveAffix = makeRolledAffix(def, item, forceT1 ? { forceT1: true, exclusive: true } : { exclusive: true });
+  item.exclusiveAffix.exclusive = true;
+  return item;
+}
+
+function pickAffixDef(used, item, currentAffixes) {
+  const all = allAffixDefs().filter(d => !used.has(d.id) && !used.has(d.stat) && affixAllowedOnItem(d, item, currentAffixes));
+  if (all.length) return all[Math.floor(Math.random() * all.length)];
+  const attrs = allAffixDefs().filter(d => affixKind(d) === 'attr' && !used.has(d.id) && !used.has(d.stat));
+  if (attrs.length) return attrs[Math.floor(Math.random() * attrs.length)];
+  return allAffixDefs().find(d => !used.has(d.stat)) || allAffixDefs()[0];
+}
+
+function affixCountFor(quality, maxed = false) {
+  const [minA, maxA] = QUALITY[quality]?.affixCount || [0, 0];
+  if (maxed || isAncientItem(quality)) return maxA;
+  if (maxA <= minA) return minA;
+  return minA + Math.floor(Math.random() * (maxA - minA + 1));
+}
+
+function rollItemAffixes(item, mapLevel = 1) {
+  if (!item) return item;
+  stampItemLevel(item, mapLevel);
+  const ancient = isAncientItem(item);
+  const count = affixCountFor(item.quality, ancient);
+  const kept = (item.affixes || [])
+    .filter(a => a && !a.exclusive)
+    .map(a => stampAffixMeta({ ...a }, item))
+    .slice(0, count);
+  const used = new Set(kept.flatMap(a => [a.id, a.stat].filter(Boolean)));
+  const affixes = kept.slice();
+  while (affixes.length < count) {
+    const def = pickAffixDef(used, item, affixes);
+    if (!def) break;
+    used.add(def.id);
+    used.add(def.stat);
+    affixes.push(makeRolledAffix(def, item, ancient ? { forceT1: true } : false));
+  }
+  if (ancient) {
+    for (const a of affixes) {
+      const def = findAffixDef(a);
+      if (!def) continue;
+      a.value = affixValueAtTier(def, 1);
+      a.tier = 1;
+      a.min = affixBounds(def).min;
+      a.max = affixBounds(def).max;
+    }
+  }
+  item.affixes = affixes;
+  stampExclusiveAffix(item, ancient);
+  refreshItemBases(item);
+  return item;
+}
+
+function stampAffixMeta(a, itemOrLevel = 1) {
+  const def = findAffixDef(a);
+  if (def) {
+    const { min, max } = affixBounds(def);
+    a.min = min;
+    a.max = max;
+    a.value = Math.min(max, Math.max(min, a.value ?? min));
+    a.suffix = a.suffix || def.suffix || '';
+    a.name = a.name || def.name;
+    a.id = a.id || def.id;
+    a.stat = a.stat || def.stat;
+    a.tier = affixTierFromValue(def, a.value);
+  } else {
+    a.min = a.min ?? a.value;
+    a.max = a.max ?? a.value;
+    a.suffix = a.suffix || '';
+    a.tier = affixTier(a.value, a.min, a.max);
+  }
+  return a;
+}
+
+function ensureItemAffixes(item, mapLevel = 1) {
+  if (!item) return item;
+  if (!item.itemLevel) {
+    if (item.affixes?.length) {
+      let best = AFFIX_TIER_MAX;
+      for (const a of item.affixes) {
+        const def = findAffixDef(a);
+        if (def) best = Math.min(best, affixTierFromValue(def, a.value));
+      }
+      if (best <= 1) item.itemLevel = 91;
+      else if (best <= 2) item.itemLevel = 76;
+      else if (best <= 4) item.itemLevel = 61;
+      else if (best <= 6) item.itemLevel = 46;
+      else if (best <= 9) item.itemLevel = 31;
+      else item.itemLevel = Math.max(1, Math.min(30, mapLevel || 20));
+    } else {
+      item.itemLevel = Math.max(1, Math.min(99, Math.round(mapLevel || 1)));
+    }
+  }
+  stampItemLevel(item, item.itemLevel);
+  if (item.id) {
+    const named = [...UNIQUE_ITEMS, ...LEGENDARY_ITEMS].find(i => i.id === item.id);
+    if (named?.reqClass && !item.reqClass) item.reqClass = named.reqClass;
+    if (named?.icon && !item.icon) item.icon = named.icon;
+    if (named?.weaponClass && !item.weaponClass) item.weaponClass = named.weaponClass;
+  }
+  if (!item.reqClass && item.setId && SETS[item.setId]?.reqClass) {
+    item.reqClass = SETS[item.setId].reqClass;
+  }
+  refreshItemBases(item);
+  if (!item.quality || item.quality === 'normal') {
+    item.affixes = item.affixes || [];
+    return item;
+  }
+  const [minA, maxA] = QUALITY[item.quality]?.affixCount || [0, 0];
+  if (maxA <= 0) return item;
+  item.affixes = (item.affixes || []).filter(a => a && !a.exclusive).map(a => stampAffixMeta({ ...a }, item));
+  const ancient = isAncientItem(item);
+  const used = new Set(item.affixes.flatMap(a => [a.id, a.stat].filter(Boolean)));
+  let target = item.affixes.length;
+  if (ancient) target = maxA;
+  else if (target < minA) target = affixCountFor(item.quality, false);
+  else if (target > maxA) target = maxA;
+  while (item.affixes.length < target) {
+    const def = pickAffixDef(used, item, item.affixes);
+    if (!def) break;
+    used.add(def.id);
+    used.add(def.stat);
+    item.affixes.push(makeRolledAffix(def, item, ancient ? { forceT1: true } : false));
+  }
+  if (item.affixes.length > target) item.affixes = item.affixes.slice(0, target);
+  if (ancient) {
+    for (const a of item.affixes) {
+      const def = findAffixDef(a);
+      if (!def) continue;
+      a.value = affixValueAtTier(def, 1);
+      a.tier = 1;
+    }
+  }
+  stampExclusiveAffix(item, ancient);
+  return item;
+}
+
+function scaleRolledBase(listed, ilvl) {
+  if (!listed) return 0;
+  const cap = scaleItemBase(listed, ilvl);
+  const lo = Math.max(1, Math.floor(cap * 0.9));
+  return lo + Math.floor(Math.random() * (cap - lo + 1));
+}
+
+function scaleNamedBase(listed, ilvl) {
+  return scaleItemBase(listed, ilvl);
+}
+
+function pickFrom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function itemClassId(item) {
+  if (!item) return null;
+  if (item.reqClass) return item.reqClass;
+  if (item.setId && SETS[item.setId]?.reqClass) return SETS[item.setId].reqClass;
+  return null;
+}
+
+function namedItemFitsHero(def, charId) {
+  if (!def || !charId) return false;
+  const req = itemClassId(def);
+  if (req === charId) return true;
+  const wcs = CHARACTERS[charId]?.weaponClasses || [];
+  if (def.weaponClass && wcs.includes(def.weaponClass)) return true;
+  return false;
+}
+
+function pickNamedLoot(pool, charId) {
+  if (!pool.length) return null;
+  const prefer = charId ? pool.filter(d => namedItemFitsHero(d, charId)) : [];
+  if (prefer.length && Math.random() < 0.72) return pickFrom(prefer);
+  return pickFrom(pool);
+}
+
+function pickSetLoot(pool, charId) {
+  if (!pool.length) return null;
+  const generic = pool.filter(d => !itemClassId(d));
+  const mine = charId ? pool.filter(d => itemClassId(d) === charId) : [];
+  const pGeneric = pool.length ? 0.28 * generic.length / pool.length : 0;
+  if (generic.length && (!mine.length || Math.random() < pGeneric)) return pickFrom(generic);
+  if (mine.length) return pickFrom(mine);
+  return pickFrom(generic.length ? generic : pool);
+}
+
+function pickLootBase(slot, charId) {
+  const list = BASE_ITEMS[slot] || BASE_ITEMS.weapon;
+  const prefer = list.filter(b => {
+    if (b.reqClass === charId) return true;
+    if (slot === 'weapon' && (CHARACTERS[charId]?.weaponClasses || []).includes(b.weaponClass)) return true;
+    return false;
+  });
+  if (prefer.length && Math.random() < 0.64) return pickFrom(prefer);
+  const generic = list.filter(b => !b.reqClass);
+  return pickFrom(generic.length ? generic : list);
+}
+
+function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = null) {
+  const kindBonus = kind === 'goblin' ? 5.4
+    : kind === 'hidden' ? 4.8
+    : kind === 'rare' || kind === 'rareBoss' ? 4.2
+    : kind === 'elite' ? 2.6
+    : kind === 'actBoss' || kind === 'boss' || kind === 'riftBoss' ? 3.8
+    : 1;
   const quality = forceQuality || rollQuality(kindBonus);
-  const qDef = QUALITY[quality];
+
+  const finishNamed = (def, q = def.quality) => {
+    const item = cloneItem(def);
+    item.quality = q;
+    item.itemLevel = clampItemLevel(mapLevel);
+    item.reqLevel = Math.max(1, Math.min(99, item.itemLevel - 4));
+    if (!item.reqClass && item.setId && SETS[item.setId]?.reqClass) {
+      item.reqClass = SETS[item.setId].reqClass;
+    }
+    if (def.baseDamage) item.listedDamage = def.baseDamage;
+    if (def.armor) item.listedArmor = def.armor;
+    if (def.attackSpeed) item.listedAttackSpeed = def.attackSpeed;
+    refreshItemBases(item);
+    return maybeMorph(rollItemAffixes(item, item.itemLevel));
+  };
 
   if (quality === 'unique') {
     if (UNIQUE_ITEMS.length) {
-      const def = UNIQUE_ITEMS[Math.floor(Math.random() * UNIQUE_ITEMS.length)];
-      return maybeMorph(cloneItem(def));
+      return finishNamed(pickNamedLoot(UNIQUE_ITEMS, charId));
     }
   }
 
   if (quality === 'legendary' || quality === 'ancient') {
     const pool = LEGENDARY_ITEMS.filter(i => i.quality === 'legendary');
     if (pool.length && Math.random() < 0.7) {
-      const def = pool[Math.floor(Math.random() * pool.length)];
-      const item = cloneItem(def);
-      item.quality = quality;
-      return maybeMorph(item);
+      return finishNamed(pickNamedLoot(pool, charId), quality);
     }
   }
 
-  if (quality === 'set') {
-    const setItems = LEGENDARY_ITEMS.filter(i => i.quality === 'set');
-    if (setItems.length) return cloneItem(setItems[Math.floor(Math.random() * setItems.length)]);
+  if (quality === 'set' || quality === 'ancientSet') {
+    const setItems = LEGENDARY_ITEMS.filter(i => i.quality === 'set' || i.setId);
+    if (setItems.length) {
+      return finishNamed(pickSetLoot(setItems, charId), quality);
+    }
   }
 
   const slot = SLOTS[Math.floor(Math.random() * SLOTS.length)];
-  const baseList = BASE_ITEMS[slot] || BASE_ITEMS.weapon;
-  const base = baseList[Math.floor(Math.random() * baseList.length)];
+  const base = pickLootBase(slot, charId);
   const item = {
-    uid: crypto.randomUUID(),
+    uid: uid(),
     name: base.name,
     slot, quality, locked: false, affixes: [],
+    itemLevel: clampItemLevel(mapLevel),
   };
-  if (base.baseDamage) item.baseDamage = base.baseDamage + Math.floor(mapLevel * 0.15);
-  if (base.armor) item.armor = base.armor + Math.floor(mapLevel * 0.1);
-
-  const [minA, maxA] = qDef.affixCount;
-  const affixCount = minA + Math.floor(Math.random() * (maxA - minA + 1));
-  const used = new Set();
-  for (let i = 0; i < affixCount; i++) {
-    const pool = i % 2 === 0 ? AFFIX_POOL.prefix : AFFIX_POOL.suffix;
-    let affixDef = pool[Math.floor(Math.random() * pool.length)];
-    let guard = 0;
-    while (used.has(affixDef.id) && guard++ < 8) affixDef = pool[Math.floor(Math.random() * pool.length)];
-    used.add(affixDef.id);
-    const scale = 1 + mapLevel * 0.02;
-    const value = Math.floor((affixDef.min + Math.random() * (affixDef.max - affixDef.min + 1)) * scale);
-    item.affixes.push({ stat: affixDef.stat, value, name: affixDef.name });
-  }
+  item.reqLevel = Math.max(1, Math.min(99, item.itemLevel - 4));
+  if (base.baseDamage) item.listedDamage = base.baseDamage;
+  if (base.armor) item.listedArmor = base.armor;
+  if (base.weaponClass) item.weaponClass = base.weaponClass;
+  if (base.offhandClass) item.offhandClass = base.offhandClass;
+  if (base.attackSpeed) item.listedAttackSpeed = base.attackSpeed;
+  if (base.icon) item.icon = base.icon;
+  if (base.reqClass) item.reqClass = base.reqClass;
+  refreshItemBases(item);
+  rollItemAffixes(item, item.itemLevel);
   return maybeMorph(item);
 }
 
-export function sellValue(item) {
-  const rank = (Q_RANK[item.quality] ?? 0) + 1;
-  return Math.floor(8 * rank * (1 + 0.15 * (item.affixes?.length || 0)));
+function sellValue(item) {
+  if (!item) return 0;
+  const ilvl = Math.max(1, item.itemLevel || 1);
+  const qMult = {
+    normal: 1,
+    magic: 1.9,
+    rare: 3.5,
+    set: 5.4,
+    unique: 6.6,
+    legendary: 8.8,
+    ancient: 12.2,
+    ancientSet: 12.6,
+  }[item.quality] || 1;
+  const affn = item.affixes?.length || 0;
+  const enh = item.enhance || 0;
+  let gold = (20 + ilvl * 18 + ilvl * ilvl * 0.32) * qMult;
+  gold *= 1 + affn * 0.12;
+  gold *= 1 + enh * 0.08;
+  if (item.exclusiveAffix) gold *= 1.22;
+  if (item.legendaryEffect) gold *= 1.15;
+  return Math.max(10, Math.floor(gold));
 }
 
-export function shouldAutoSell(state, item, hero) {
+function qualitySellMatch(item, mode) {
+  const q = item?.quality;
+  if (mode === 'unique') return q === 'unique';
+  if (mode === 'set') return q === 'set';
+  if (mode === 'legendary') return q === 'legendary';
+  if (mode === 'belowAncient') return !isAncientItem(item);
+  if (isAncientItem(item)) return false;
+  if (mode === 'normal') return q === 'normal';
+  if (mode === 'magic') return q === 'normal' || q === 'magic';
+  if (mode === 'rare') return q === 'normal' || q === 'magic' || q === 'rare';
+  if (mode === 'uniqueDown') return q === 'normal' || q === 'magic' || q === 'rare' || q === 'unique';
+  if (mode === 'setDown') return q === 'normal' || q === 'magic' || q === 'rare' || q === 'set';
+  if (mode === 'legendaryDown') return q === 'normal' || q === 'magic' || q === 'rare' || q === 'legendary';
+  return q === 'normal' || q === 'magic';
+}
+
+function shouldAutoSell(state, item, hero) {
   const cfg = state.autoSell;
   if (!cfg?.enabled || item.locked) return false;
-  if (item.quality === 'unique' || item.quality === 'legendary' || item.quality === 'ancient') return false;
-  if (cfg.keepSet && (item.quality === 'set' || item.setId)) return false;
+  const keepLv = Number(cfg.minKeepLevel) || 0;
+  if (keepLv > 0 && (item.itemLevel || 0) >= keepLv) return false;
   if (cfg.keepBetter) {
     const { diffPct } = compareDPS(hero, item);
     if (diffPct > 2) return false;
   }
-  return (Q_RANK[item.quality] ?? 0) <= (Q_RANK[cfg.maxQuality] ?? 1);
+  return qualitySellMatch(item, cfg.maxQuality || 'magic');
 }
 
-export function addLoot(state, item) {
+function junkBagTargets(state, mode) {
+  const filter = mode || state.junkQuality || 'magic';
+  return (state.inventory || []).filter((it) => !it.locked && qualitySellMatch(it, filter));
+}
+
+function sellJunkItems(state, mode) {
+  return bulkDisposeLoose(state, junkBagTargets(state, mode).map((it) => it.uid), 'sell');
+}
+
+function salvageJunkItems(state, mode) {
+  return bulkDisposeLoose(state, junkBagTargets(state, mode).map((it) => it.uid), 'salvage');
+}
+
+function normalizeInvSort(sort) {
+  if (sort && typeof sort === 'object' && !Array.isArray(sort)) {
+    return {
+      rarity: !!sort.rarity,
+      ilvl: !!sort.ilvl,
+      score: !!sort.score,
+    };
+  }
+  if (sort === 'ilvl') return { rarity: false, ilvl: true, score: false };
+  if (sort === 'rarity') return { rarity: true, ilvl: false, score: false };
+  if (sort === 'same') return { rarity: true, ilvl: false, score: true };
+  return { rarity: true, ilvl: true, score: true };
+}
+
+function addLoot(state, item) {
   const hero = getActiveHero(state);
   if (shouldAutoSell(state, item, hero)) {
+    if (state.autoSell.action === 'salvage') {
+      const r = salvageItem(state, item);
+      return { sold: true, salvage: true, gold: r.gold, metal: r.metal, cloth: r.cloth, crystal: r.crystal, item };
+    }
     const gold = sellValue(item);
     state.gold += gold;
     return { sold: true, gold, item };
   }
-  if (state.inventory.length >= INV_CAP) {
+  if (state.inventory.length >= getInvCap(state)) {
     const gold = sellValue(item);
     state.gold += gold;
     return { sold: true, overflow: true, gold, item };
@@ -236,57 +1132,644 @@ export function addLoot(state, item) {
   return { sold: false, item };
 }
 
-export function sortInventory(state) {
-  state.inventory.sort((a, b) => {
-    if (!!b.locked - !!a.locked) return b.locked - a.locked;
-    const qr = (Q_RANK[b.quality] ?? 0) - (Q_RANK[a.quality] ?? 0);
-    if (qr) return qr;
-    return (a.slot || '').localeCompare(b.slot || '');
-  });
+function itemTwinKey(item) {
+  if (!item) return '';
+  if (item.id) return `id:${item.id}`;
+  if (item.setId) return `set:${item.setId}:${item.slot}`;
+  return `n:${item.name}|${item.slot}|${item.quality}`;
 }
 
-export function levelUpHero(hero) {
+function sortBagItems(items, sort, hero) {
+  const list = (items || []).slice();
+  const keys = normalizeInvSort(sort);
+  const tot = (() => {
+    const cache = new Map();
+    return (it) => {
+      if (cache.has(it.uid)) return cache.get(it.uid);
+      const s = scoreItem(it, hero);
+      const n = (s.atk || 0) + (s.surv || 0);
+      cache.set(it.uid, n);
+      return n;
+    };
+  })();
+  const active = ['rarity', 'ilvl', 'score'].filter((k) => keys[k]);
+  const use = active.length ? active : ['score'];
+  list.sort((a, b) => {
+    for (const k of use) {
+      let d = 0;
+      if (k === 'rarity') d = (Q_RANK[b.quality] ?? 0) - (Q_RANK[a.quality] ?? 0);
+      else if (k === 'ilvl') d = (b.itemLevel || 0) - (a.itemLevel || 0);
+      else d = tot(b) - tot(a);
+      if (d) return d;
+    }
+    return (a.slot || '').localeCompare(b.slot || '');
+  });
+  return list;
+}
+
+function sortInventory(state) {
+  const hero = getActiveHero(state);
+  state.inventory = sortBagItems(state.inventory, state.invSort, hero);
+}
+
+function levelUpHero(hero) {
   while (hero.exp >= expForLevel(hero.level) && hero.level < 99) {
     hero.exp -= expForLevel(hero.level);
     hero.level++;
     hero.skillPoints = (hero.skillPoints || 0) + 1;
     hero.currentHp = calcHeroStats(hero).maxHp;
+    clampHeroResource(hero);
   }
 }
 
-export function allocateSkillPoint(hero, skillId) {
-  const skill = SKILLS[hero.charId]?.[skillId];
-  if (!skill || (hero.skillPoints || 0) <= 0) return false;
+function allocateSkillPoint(hero, skillId, state) {
+  const gate = canLearnSkill(hero, skillId, state);
+  if (!gate.ok) return false;
+  const skill = SKILLS[hero.charId][skillId];
+  const cost = gate.cost || skillLearnCost(hero, skillId);
+  if (state) {
+    const paid = payCost(state, cost);
+    if (!paid.ok) return false;
+  }
   const current = hero.skillLevels[skillId] || 0;
-  if (current >= skill.maxLevel) return false;
-  if (skill.prereq && !(hero.skillLevels[skill.prereq] > 0)) return false;
   hero.skillLevels[skillId] = current + 1;
   hero.skillPoints--;
-  if (!hero.equippedSkills.includes(skillId) && skill.type === 'active') {
+  if (skill.auraSlot && current < 1) {
+    hero.auraPick = hero.auraPick || {};
+    if (!hero.auraPick[skill.auraSlot]) {
+      hero.auraPick[skill.auraSlot] = skillId;
+      hero.skillEnabled = hero.skillEnabled || {};
+      hero.skillEnabled[skillId] = true;
+      for (const id of auraSlotSkills(hero, skill.auraSlot)) {
+        if (id !== skillId) hero.skillEnabled[id] = false;
+      }
+    }
+  }
+  if (!hero.equippedSkills) hero.equippedSkills = [];
+  if (!hero.equippedSkills.includes(skillId) && skill.type === 'active' && (skill.damageMult || 0) >= 1) {
     if (hero.equippedSkills.length < 6) hero.equippedSkills.push(skillId);
   }
-  return true;
+  return { ok: true, cost };
 }
 
-export function equipItem(hero, item) {
-  const slot = item.slot === 'ring1' || item.slot === 'ring2'
-    ? (hero.equipment.ring1 ? 'ring2' : 'ring1')
+function takeOwnedLooseItem(state, uid) {
+  let idx = (state.inventory || []).findIndex(i => i.uid === uid);
+  if (idx >= 0) return state.inventory.splice(idx, 1)[0];
+  idx = (ensureTown(state).warehouse || []).findIndex(i => i.uid === uid);
+  if (idx >= 0) return state.town.warehouse.splice(idx, 1)[0];
+  return null;
+}
+
+function salvageSlotGroup(item) {
+  const slot = item?.slot;
+  if (WEAPON_SALVAGE_SLOTS.has(slot)) return 'weapon';
+  if (JEWEL_SALVAGE_SLOTS.has(slot)) return 'jewel';
+  return 'armor';
+}
+
+function salvagePreview(item) {
+  const rank = (Q_RANK[item.quality] ?? 0) + 1;
+  const ilvl = item.itemLevel || 1;
+  const affn = item.affixes?.length || 0;
+  const base = Math.max(1, Math.round((rank * 1.1 + ilvl / 10) * (1 + affn * 0.06)));
+  const gold = Math.floor(sellValue(item) * 0.4);
+  const g = salvageSlotGroup(item);
+  let metal = 0;
+  let cloth = 0;
+  let crystal = 0;
+  if (g === 'weapon') {
+    metal = base;
+    crystal = Math.max(0, Math.floor(base * 0.08 + (rank >= 4 ? 1 : 0)));
+  } else if (g === 'armor') {
+    cloth = base;
+    metal = Math.max(0, Math.floor(base * 0.1));
+  } else {
+    crystal = base;
+  }
+  return { gold, metal, cloth, crystal, shards: metal };
+}
+
+function salvageItem(state, item) {
+  const r = salvagePreview(item);
+  gainMats(state, r);
+  state.gold += r.gold;
+  return r;
+}
+
+function bulkDisposeLoose(state, uids, mode) {
+  const want = new Set(uids || []);
+  let gold = 0;
+  let metal = 0;
+  let cloth = 0;
+  let crystal = 0;
+  let n = 0;
+  let skipped = 0;
+  const strip = (arr) => {
+    if (!arr?.length) return;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const it = arr[i];
+      if (!want.has(it.uid)) continue;
+      if (it.locked) {
+        skipped += 1;
+        continue;
+      }
+      if (mode === 'salvage') {
+        const r = salvageItem(state, it);
+        gold += r.gold;
+        metal += r.metal;
+        cloth += r.cloth;
+        crystal += r.crystal;
+      } else {
+        const g = sellValue(it);
+        state.gold += g;
+        gold += g;
+      }
+      arr.splice(i, 1);
+      n += 1;
+    }
+  };
+  strip(state.inventory);
+  strip(state.town?.warehouse);
+  return { n, gold, metal, cloth, crystal, shards: metal, skipped };
+}
+
+function formatCompactNum(n) {
+  const v = Math.trunc(Number(n) || 0);
+  const sign = v < 0 ? '-' : '';
+  const abs = Math.abs(v);
+  if (abs < 1000) return String(v);
+  const units = [
+    [1e12, 'T'],
+    [1e9, 'B'],
+    [1e6, 'M'],
+    [1e3, 'K'],
+  ];
+  for (const [div, u] of units) {
+    if (abs >= div) {
+      const x = abs / div;
+      const d = x >= 100 ? 0 : x >= 10 ? 1 : 2;
+      let s = x.toFixed(d).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+      return sign + s + u;
+    }
+  }
+  return String(v);
+}
+
+function formatMatBits(p) {
+  const bits = [];
+  if ((p.metal || 0) > 0) bits.push(`金属${formatCompactNum(p.metal)}`);
+  if ((p.cloth || 0) > 0) bits.push(`布料${formatCompactNum(p.cloth)}`);
+  if ((p.crystal || 0) > 0) bits.push(`水晶${formatCompactNum(p.crystal)}`);
+  return bits.join(' ');
+}
+
+function formatCostText(c) {
+  const bits = [];
+  if (c.gold) bits.push(`${formatCompactNum(c.gold)}金`);
+  if (c.metal) bits.push(`${formatCompactNum(c.metal)}金属`);
+  if (c.cloth) bits.push(`${formatCompactNum(c.cloth)}布料`);
+  if (c.crystal) bits.push(`${formatCompactNum(c.crystal)}水晶`);
+  return bits.join('/');
+}
+
+function formatSalvageLog(prefix, r) {
+  const mats = formatMatBits(r);
+  return `${prefix} +${formatCompactNum(r.gold || 0)}金${mats ? ' +' + mats : ''}`;
+}
+
+function ensureMats(state) {
+  if (!state.mats) state.mats = { metal: 0, cloth: 0, crystal: 0 };
+  if (state.mats.metal == null) state.mats.metal = 0;
+  if (state.mats.cloth == null) state.mats.cloth = 0;
+  if (state.mats.crystal == null) state.mats.crystal = 0;
+  return state.mats;
+}
+
+function gainMats(state, p) {
+  const m = ensureMats(state);
+  m.metal += p.metal || 0;
+  m.cloth += p.cloth || 0;
+  m.crystal += p.crystal || 0;
+}
+
+function canPayCost(state, cost) {
+  ensureMats(state);
+  if ((cost.gold || 0) > (state.gold || 0)) return '金币不足';
+  if ((cost.metal || 0) > state.mats.metal) return '金属不足';
+  if ((cost.cloth || 0) > state.mats.cloth) return '布料不足';
+  if ((cost.crystal || 0) > state.mats.crystal) return '水晶不足';
+  return '';
+}
+
+function failActText(reason, action) {
+  if (!reason) return `无法${action}`;
+  if (reason.includes('无法')) return reason;
+  return `${reason}，无法${action}`;
+}
+
+function payCost(state, cost) {
+  const why = canPayCost(state, cost);
+  if (why) return { ok: false, reason: why };
+  state.gold -= cost.gold || 0;
+  state.mats.metal -= cost.metal || 0;
+  state.mats.cloth -= cost.cloth || 0;
+  state.mats.crystal -= cost.crystal || 0;
+  return { ok: true };
+}
+
+function enhanceCost(item) {
+  const q = (Q_RANK[item?.quality] ?? 0) + 1;
+  const ilvl = item?.itemLevel || 1;
+  const n = (item?.enhance || 0) + 1;
+  const cap = itemEnhanceCapPct(item?.quality) || 0.3;
+  const mats = Math.max(4, Math.ceil((ilvl / 4.5 + q * 2.2) * n * (0.9 + cap)));
+  const gold = Math.floor(ilvl * 32 * q * (1.2 + n * 0.62) * (0.85 + cap));
+  const g = salvageSlotGroup(item);
+  if (g === 'weapon') return { gold, metal: mats };
+  if (g === 'jewel') return { gold, crystal: mats };
+  return { gold, cloth: mats };
+}
+
+function enhanceItem(state, item) {
+  if (!item) return { ok: false, reason: '没有装备' };
+  const cap = itemEnhanceCapPct(item.quality);
+  if (!cap) return { ok: false, reason: '普通/魔法无法强化' };
+  const lv = item.enhance || 0;
+  if (lv >= 10) return { ok: false, reason: '已强化至上限' };
+  const cost = enhanceCost(item);
+  const pay = payCost(state, cost);
+  if (!pay.ok) return pay;
+  item.enhance = lv + 1;
+  return { ok: true, cost, enhance: item.enhance, bonus: itemEnhanceBonus(item) };
+}
+
+function ensureTrain(hero) {
+  if (!hero.train) hero.train = { unlocked: {}, lv: {} };
+  if (!hero.train.unlocked) hero.train.unlocked = {};
+  if (!hero.train.lv) hero.train.lv = {};
+  return hero.train;
+}
+
+function trainLevelCost(def, lv) {
+  const n = lv + 1;
+  return {
+    gold: Math.floor(def.unlock.gold * 0.22 * n * (1 + n * 0.12)),
+    metal: Math.ceil((def.unlock.metal || 0) * 0.1 * n),
+    cloth: Math.ceil((def.unlock.cloth || 0) * 0.1 * n),
+    crystal: Math.ceil((def.unlock.crystal || 0) * 0.1 * n),
+  };
+}
+
+function getHallLevel(state) {
+  return ensureTown(state).hallLevel || 1;
+}
+
+function hallUpgradeCost(lv) {
+  const n = Math.max(1, lv);
+  return {
+    gold: 12000 * n * n,
+    metal: 25 * n,
+    cloth: 25 * n,
+    crystal: 25 * n,
+  };
+}
+
+function upgradeHall(state) {
+  const town = ensureTown(state);
+  const lv = town.hallLevel || 1;
+  if (lv >= HALL_MAX) return { ok: false, reason: '议事厅已满级' };
+  const cost = hallUpgradeCost(lv);
+  const pay = payCost(state, cost);
+  if (!pay.ok) return pay;
+  town.hallLevel = lv + 1;
+  return { ok: true, lv: town.hallLevel, cost };
+}
+
+function unlockTrainStat(state, statId) {
+  const hero = getActiveHero(state);
+  const def = TRAIN_DEFS.find(d => d.id === statId);
+  if (!def) return { ok: false, reason: '未知训练' };
+  ensureTrain(hero);
+  if (hero.train.unlocked[statId]) return { ok: false, reason: '已解锁' };
+  const needHall = def.hall || 1;
+  if (getHallLevel(state) < needHall) {
+    return { ok: false, reason: '议事厅条件不满足' };
+  }
+  const pay = payCost(state, def.unlock);
+  if (!pay.ok) return pay;
+  hero.train.unlocked[statId] = true;
+  hero.train.lv[statId] = 0;
+  return { ok: true, cost: def.unlock };
+}
+
+function upgradeTrainStat(state, statId) {
+  const hero = getActiveHero(state);
+  const def = TRAIN_DEFS.find(d => d.id === statId);
+  if (!def) return { ok: false, reason: '未知训练' };
+  ensureTrain(hero);
+  if (!hero.train.unlocked[statId]) return { ok: false, reason: '尚未解锁' };
+  const lv = hero.train.lv[statId] || 0;
+  if (lv >= def.max) return { ok: false, reason: '已达上限' };
+  const cost = trainLevelCost(def, lv);
+  const pay = payCost(state, cost);
+  if (!pay.ok) return pay;
+  hero.train.lv[statId] = lv + 1;
+  return { ok: true, cost, lv: hero.train.lv[statId] };
+}
+
+function rerollAffixCost(item) {
+  const ilvl = item?.itemLevel || 1;
+  const q = (Q_RANK[item?.quality] ?? 0) + 1;
+  return {
+    shards: Math.max(2, Math.ceil(ilvl / 5) + q),
+    metal: Math.max(2, Math.ceil(ilvl / 5) + q),
+    gold: Math.max(15, ilvl * 6 * q),
+  };
+}
+
+function findOwnedItem(state, uid) {
+  if (!uid) return null;
+  const bag = (state.inventory || []).find(i => i.uid === uid);
+  if (bag) return bag;
+  const ware = (state.town?.warehouse || []).find(i => i.uid === uid);
+  if (ware) return ware;
+  const hero = getActiveHero(state);
+  return Object.values(hero?.equipment || {}).find(i => i?.uid === uid) || null;
+}
+
+function rerollItemAffix(state, item) {
+  if (!item) return { ok: false, reason: '没有装备' };
+  const regular = (item.affixes || []).filter(a => !a.exclusive);
+  if (item.quality === 'normal' || !regular.length) {
+    return { ok: false, reason: '没有可洗练的词缀' };
+  }
+  const cost = rerollAffixCost(item);
+  const pay = payCost(state, { gold: cost.gold, metal: cost.metal });
+  if (!pay.ok) return pay;
+  const idx = Math.floor(Math.random() * regular.length);
+  const others = regular.filter((_, i) => i !== idx);
+  const used = new Set(others.flatMap(a => [a.id, a.stat].filter(Boolean)));
+  const current = item.exclusiveAffix ? others.concat(item.exclusiveAffix) : others;
+  const def = pickAffixDef(used, item, current);
+  const next = makeRolledAffix(def, item, isAncientItem(item) ? { forceT1: true } : false);
+  const realIdx = item.affixes.indexOf(regular[idx]);
+  const prev = item.affixes[realIdx];
+  item.affixes[realIdx] = next;
+  return { ok: true, prev, next, cost, index: idx };
+}
+
+function unequipItem(state, hero, slot) {
+  const item = hero.equipment[slot];
+  if (!item) return { ok: false, reason: '该部位没有装备' };
+  if (state.inventory.length < getInvCap(state)) {
+    state.inventory.push(item);
+    delete hero.equipment[slot];
+    return { ok: true, item };
+  }
+  if (townUnlocked(state) && ensureTown(state).warehouse.length < getWarehouseCap(state)) {
+    state.town.warehouse.push(item);
+    delete hero.equipment[slot];
+    return { ok: true, item, toWarehouse: true };
+  }
+  return { ok: false, reason: '背包已满' };
+}
+
+function isRingItem(item) {
+  return item && (item.slot === 'ring1' || item.slot === 'ring2');
+}
+
+function ringSlotForEquip(hero, preferred) {
+  const want = preferred === 'ring2' ? 'ring2' : 'ring1';
+  if (!hero.equipment[want]) return want;
+  if (!hero.equipment.ring1) return 'ring1';
+  if (!hero.equipment.ring2) return 'ring2';
+  return want;
+}
+
+function inferOffhandClass(item) {
+  if (!item || item.slot !== 'offhand') return null;
+  if (item.offhandClass) return item.offhandClass;
+  const n = item.name || '';
+  if (/箭袋|箭壶|箭囊|箭筒/.test(n)) return 'quiver';
+  return 'shield';
+}
+
+function offhandFitsWeapon(weapon, offhand) {
+  if (!offhand) return { ok: true };
+  const oc = inferOffhandClass(offhand);
+  const wc = inferWeaponClass(weapon);
+  if (oc === 'quiver') {
+    if (wc === 'bow') return { ok: true };
+    const have = weapon ? (WEAPON_CLASS_NAMES[wc] || weapon.name) : '未装备武器';
+    return { ok: false, reason: `箭袋需搭配弓或弩（当前：${have}）` };
+  }
+  if (oc === 'shield' && wc === 'bow') {
+    return { ok: false, reason: '弓/弩不能同时持盾，请改用箭袋' };
+  }
+  return { ok: true };
+}
+
+function equipBlockReason(hero, item) {
+  if (!hero || !item) return '';
+  const req = itemClassId(item);
+  if (req && req !== hero.charId) {
+    const who = CHARACTERS[req]?.name || req;
+    return `仅限 ${who}`;
+  }
+  if (item.slot === 'offhand') {
+    const chk = offhandFitsWeapon(hero.equipment?.weapon, item);
+    if (!chk.ok) return chk.reason;
+  }
+  return '';
+}
+
+function itemFitsSlot(item, slot) {
+  if (!item || !slot) return false;
+  if (slot === 'ring1' || slot === 'ring2') return isRingItem(item);
+  if (slot === 'offhand') return item.slot === 'offhand';
+  if (slot === 'weapon' && inferOffhandClass(item) === 'quiver') return true;
+  return item.slot === slot;
+}
+
+function tryEquip(state, hero, item, preferredSlot) {
+  const dest = isRingItem(item)
+    ? ringSlotForEquip(hero, preferredSlot || item.slot)
     : item.slot;
-  const prev = hero.equipment[slot];
-  hero.equipment[slot] = { ...item, slot };
-  return prev;
+  const block = equipBlockReason(hero, item);
+  if (block) return { ok: false, reason: block };
+  if (item.slot === 'offhand') {
+    const chk = offhandFitsWeapon(hero.equipment.weapon, item);
+    if (!chk.ok) return { ok: false, reason: chk.reason };
+  }
+  let extra = null;
+  if (item.slot === 'weapon') {
+    const chk = offhandFitsWeapon(item, hero.equipment.offhand);
+    if (!chk.ok && hero.equipment.offhand) {
+      extra = hero.equipment.offhand;
+      delete hero.equipment.offhand;
+    }
+  }
+  const prev = hero.equipment[dest];
+  hero.equipment[dest] = { ...item, slot: dest };
+  return { ok: true, prev, dest, extra };
 }
 
-export function compareDPS(hero, newItem) {
+function compareDPS(hero, newItem, preferredSlot) {
   const oldDps = Math.max(1, calcDPS(hero));
-  const slot = newItem.slot === 'ring1' || newItem.slot === 'ring2'
-    ? (hero.equipment.ring1 && newItem.slot === 'ring2' ? 'ring2' : 'ring1')
+  const slot = isRingItem(newItem)
+    ? ringSlotForEquip(hero, preferredSlot || newItem.slot)
     : newItem.slot;
   const prev = hero.equipment[slot];
   hero.equipment[slot] = newItem;
   const newDps = calcDPS(hero);
   hero.equipment[slot] = prev;
-  return { oldDps, newDps, diff: newDps - oldDps, diffPct: ((newDps - oldDps) / oldDps) * 100 };
+  return { oldDps, newDps, diff: newDps - oldDps, diffPct: ((newDps - oldDps) / oldDps) * 100, slot };
+}
+
+function compareEHP(hero, newItem, preferredSlot) {
+  const map = getCurrentMap(hero);
+  const ml = map ? Math.round(((map.levelMin || 1) + (map.levelMax || 1)) / 2) : (hero.level || 10);
+  const slot = isRingItem(newItem)
+    ? ringSlotForEquip(hero, preferredSlot || newItem.slot)
+    : newItem.slot;
+  const oldEhp = Math.max(1, calcEHP(hero, ml));
+  const prev = hero.equipment[slot];
+  hero.equipment[slot] = newItem;
+  const newEhp = calcEHP(hero, ml);
+  hero.equipment[slot] = prev;
+  return { oldEhp, newEhp, diff: newEhp - oldEhp, diffPct: ((newEhp - oldEhp) / oldEhp) * 100, slot };
+}
+
+function listedBaseAvg(slot, key) {
+  const list = BASE_ITEMS[slot === 'ring2' ? 'ring1' : slot] || [];
+  const vals = list.map(b => b[key]).filter(v => v > 0);
+  if (!vals.length) return 0;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function expectedItemBase(item) {
+  const ilvl = item?.itemLevel || 1;
+  const dmg = listedBaseAvg(item.slot, 'baseDamage');
+  const arm = listedBaseAvg(item.slot, 'armor');
+  return {
+    damage: dmg ? scaleItemBase(dmg, ilvl) : 0,
+    armor: arm ? scaleItemBase(arm, ilvl) : 0,
+  };
+}
+
+function scoreGrade(n) {
+  if (n >= 850) return 'SS';
+  if (n >= 700) return 'S';
+  if (n >= 560) return 'A';
+  if (n >= 420) return 'B';
+  if (n >= 280) return 'C';
+  return 'D';
+}
+
+function affixRollRatio(a) {
+  const max = a?.max || (findAffixDef(a) ? affixBounds(findAffixDef(a)).max : a?.value);
+  if (!max) return 0.5;
+  return Math.max(0, Math.min(1.05, (a.value || 0) / max));
+}
+
+function statAxisWeight(hero, stat, axis) {
+  const charId = hero?.charId;
+  const main = CHARACTERS[charId]?.mainStat || 'str';
+  const caster = main === 'int';
+  const summoner = charId === 'necro' || charId === 'druid';
+  const elements = charId === 'sorceress';
+  const ranged = charId === 'amazon' || charId === 'sorceress' || charId === 'necro';
+  const melee = charId === 'berserker' || charId === 'paladin' || charId === 'assassin';
+  if (stat === 'str' || stat === 'agi' || stat === 'int') {
+    if (axis === 'surv') return 0.12;
+    if (stat === main) return 1.2;
+    if (stat === 'int' && caster) return 0.55;
+    return 0.35;
+  }
+  if (axis === 'atk') {
+    const w = {
+      physDmgPct: elements ? 0.55 : 1.15,
+      fireDmgPct: elements ? 1.15 : 0.45,
+      iceDmgPct: elements ? 1.15 : 0.45,
+      lightningDmgPct: elements ? 1.15 : 0.45,
+      poisonDmgPct: charId === 'necro' ? 1.2 : 0.4,
+      critRate: 1.1,
+      critDmg: 1.1,
+      attackSpeed: ranged ? 1.15 : 1.05,
+      attackRange: ranged ? 1.1 : 0.5,
+      skillLevel: 1.2,
+      eliteDmgPct: 1.05,
+      aoePct: 1.0,
+      cdrPct: 1.05,
+      summonBonus: summoner ? 1.2 : 0.4,
+      resRegenPct: caster ? 1.05 : 0.7,
+    };
+    return w[stat] || 0;
+  }
+  const w = {
+    hp: 1.15,
+    armor: melee ? 1.2 : 1.0,
+    allRes: 1.1,
+    damageReduction: 1.2,
+    lifeRegen: 0.85,
+    killHeal: 0.9,
+    lifesteal: 1.05,
+  };
+  return w[stat] || 0;
+}
+
+function scoreItem(item, hero) {
+  if (!item) {
+    return { usable: true, atk: 0, surv: 0, atkGrade: 'D', survGrade: 'D' };
+  }
+  const block = hero ? equipBlockReason(hero, item) : '';
+  let atk = 0;
+  let surv = 0;
+  const exp = expectedItemBase(item);
+  if (item.baseDamage && exp.damage) atk += 34 * Math.min(1.35, item.baseDamage / exp.damage);
+  if (item.attackSpeed) atk += 8 * Math.min(1.3, item.attackSpeed / 0.1);
+  if (item.armor && exp.armor) surv += 34 * Math.min(1.35, item.armor / Math.max(1, exp.armor));
+  else if (item.armor) surv += Math.min(18, item.armor * 0.45);
+
+  const addAffix = (a) => {
+    if (!a?.stat) return;
+    const ratio = affixRollRatio(a);
+    const k = affixKind(a);
+    if (k === 'atk' || k === 'attr') atk += ratio * 12 * statAxisWeight(hero, a.stat, 'atk');
+    if (k === 'def' || k === 'attr') surv += ratio * 12 * statAxisWeight(hero, a.stat, 'surv');
+  };
+  for (const a of item.affixes || []) addAffix(a);
+  addAffix(item.exclusiveAffix);
+
+  const qBonus = [0, 1.5, 3, 4, 5, 6.5, 9][Q_RANK[item.quality] ?? 0] || 0;
+  const eb = itemEnhanceBonus(item);
+  const mode = slotAffixMode(item.slot);
+  if (mode === 'def') surv += qBonus + eb * 22;
+  else if (mode === 'atk') atk += qBonus + eb * 22;
+  else {
+    atk += qBonus * 0.55 + eb * 12;
+    surv += qBonus * 0.55 + eb * 12;
+  }
+  if (item.morphId) atk += 4;
+  if (item.legendaryEffect) {
+    if (mode === 'def') surv += 6;
+    else if (mode === 'atk') atk += 6;
+    else {
+      atk += 3;
+      surv += 3;
+    }
+  }
+
+  const atkN = Math.round(Math.max(0, Math.min(100, atk)) * 10);
+  const survN = Math.round(Math.max(0, Math.min(100, surv)) * 10);
+  return {
+    usable: !block,
+    reason: block || '',
+    atk: atkN,
+    surv: survN,
+    atkGrade: scoreGrade(atkN),
+    survGrade: scoreGrade(survN),
+  };
 }
 
 function offlineEfficiency(hours) {
@@ -296,7 +1779,7 @@ function offlineEfficiency(hours) {
   return (2 * 1 + 6 * 0.7 + (capped - 8) * 0.4) / capped;
 }
 
-export function calcOfflineRewards(state) {
+function calcOfflineRewards(state) {
   const elapsed = Date.now() - (state.lastSaveTime || Date.now());
   const hours = Math.min(elapsed / 3600000, OFFLINE_MAX_HOURS);
   if (hours < 0.01) return null;
@@ -308,20 +1791,22 @@ export function calcOfflineRewards(state) {
   const eff = offlineEfficiency(hours);
   const kills = Math.floor((hours * 3600 * eff) / Math.max(killTime, 0.4));
   const msExp = Math.floor(18 + avgLevel * 11);
+  const info = expLevelInfo(hero.level, avgLevel);
   const msGold = Math.floor(5 + avgLevel * 3);
   const rewards = {
     hours: Math.floor(hours * 10) / 10,
-    exp: Math.floor(kills * msExp),
+    exp: Math.floor(kills * msExp * info.mult),
     gold: Math.floor(kills * msGold),
     items: [],
     kills, eff: Math.round(eff * 100),
+    expPen: info.label || '',
   };
-  const itemCount = Math.min(40, Math.floor(kills * 0.06 * 0.5));
-  for (let i = 0; i < itemCount; i++) rewards.items.push(generateLoot(avgLevel));
+  const itemCount = Math.min(18, Math.floor(kills * 0.018));
+  for (let i = 0; i < itemCount; i++) rewards.items.push(generateLoot(avgLevel, null, 'normal', hero.charId));
   return rewards;
 }
 
-export function claimOfflineRewards(state, rewards) {
+function claimOfflineRewards(state, rewards) {
   const hero = getActiveHero(state);
   hero.exp += rewards.exp;
   state.gold += rewards.gold;
@@ -331,14 +1816,18 @@ export function claimOfflineRewards(state, rewards) {
   state.lastSaveTime = Date.now();
 }
 
-export function onBossKill(state, bossId) {
-  if (state.bossesKilled[bossId]) {
-    const loot = generateLoot(BOSSES[bossId].level, null, 'actBoss');
-    addLoot(state, loot);
+function onBossKill(state, bossId) {
+  const boss = BOSSES[bossId];
+  const first = !state.bossesKilled[bossId];
+  const loot = first
+    ? generateLoot(boss.level, 'legendary', 'actBoss', getActiveHero(state)?.charId)
+    : generateLoot(boss.level, null, 'actBoss', getActiveHero(state)?.charId);
+  if (!first) {
     return { loot, repeat: true };
   }
   state.bossesKilled[bossId] = true;
-  const boss = BOSSES[bossId];
+  const map = MAPS.find(m => m.bossId === bossId);
+  if (map?.act) grantActClears(state, map.act);
   const reward = boss.firstKillReward || {};
   const unlocked = [];
   for (const id of reward.unlockChars || []) {
@@ -348,12 +1837,12 @@ export function onBossKill(state, bossId) {
       unlocked.push(id);
     }
   }
-  const loot = generateLoot(boss.level, 'legendary', 'actBoss');
-  addLoot(state, loot);
-  return { unlockChars: unlocked, loot };
+  const nextAct = (map?.act || 0) + 1;
+  const nextMaps = MAPS.filter(m => m.act === nextAct);
+  return { unlockChars: unlocked, loot, act: map?.act, nextAct: nextMaps.length ? nextAct : null };
 }
 
-export function getUnlockProgress(state) {
+function getUnlockProgress(state) {
   return {
     visna: state.bossesKilled.visna,
     duriel: state.bossesKilled.duriel,
@@ -362,4 +1851,140 @@ export function getUnlockProgress(state) {
   };
 }
 
-export { MAPS, BOSSES, SKILLS, CHARACTERS, QUALITY, SETS, MORPHS, SLOTS };
+function getInvCap(state) {
+  return INV_CAP + (state.bagExpands || 0) * 8;
+}
+
+function bagExpandCost(state) {
+  return 400 * (1 + (state.bagExpands || 0));
+}
+
+function skillResetCost(hero) {
+  return 150 + hero.level * 40;
+}
+
+function buyBagExpand(state) {
+  if ((state.bagExpands || 0) >= 8) return { ok: false, reason: '背包已扩到上限' };
+  const cost = bagExpandCost(state);
+  if (state.gold < cost) return { ok: false, reason: '金币不足' };
+  state.gold -= cost;
+  state.bagExpands = (state.bagExpands || 0) + 1;
+  return { ok: true, cost };
+}
+
+function buySkillReset(state) {
+  const hero = getActiveHero(state);
+  const cost = skillResetCost(hero);
+  if (state.gold < cost) return { ok: false, reason: '金币不足' };
+  const spent = Object.values(hero.skillLevels || {}).reduce((a, b) => a + b, 0);
+  const seed = seedSkills(hero.charId, hero.level);
+  const seedSpent = Object.values(seed).reduce((a, b) => a + b, 0);
+  hero.skillLevels = seed;
+  hero.skillPoints = (hero.skillPoints || 0) + Math.max(0, spent - seedSpent);
+  state.gold -= cost;
+  return { ok: true, cost };
+}
+
+function potionTierDef(state) {
+  const max = POTION_TIERS.length;
+  const lv = Math.max(1, Math.min(max, state.potionTier || 1));
+  return POTION_TIERS[lv - 1];
+}
+
+function potionUpgradeCost(state) {
+  const lv = state.potionTier || 1;
+  if (lv >= POTION_TIERS.length) return 0;
+  return Math.floor(480 * Math.pow(2.35, lv - 1));
+}
+
+function usesManaPotions(stats) {
+  return (stats?.resId || 'mana') === 'mana';
+}
+
+function ensurePotionState(state) {
+  if (!state) return;
+  if (typeof state.potions === 'number') {
+    state.hpPotions = state.potions;
+    state.potions = undefined;
+  }
+  if (state.hpPotions == null) state.hpPotions = 8;
+  if (state.manaPotions == null) state.manaPotions = 6;
+  if (!state.potionTier) state.potionTier = 1;
+  const a = state.potionAuto || {};
+  state.potionAuto = {
+    buyHp: a.buyHp !== false,
+    buyMana: a.buyMana !== false,
+    useHp: a.useHp !== false,
+    useMana: a.useMana !== false,
+    keepHp: a.keepHp || 20,
+    keepMana: a.keepMana || 16,
+  };
+}
+
+function buyPotions(state, n, kind = 'hp') {
+  ensurePotionState(state);
+  const tier = potionTierDef(state);
+  const count = Math.max(1, n || POTION_PACK);
+  const cost = tier.unitCost * count;
+  if (state.gold < cost) return { ok: false, reason: '金币不足' };
+  state.gold -= cost;
+  if (kind === 'mana') state.manaPotions = (state.manaPotions || 0) + count;
+  else state.hpPotions = (state.hpPotions || 0) + count;
+  return { ok: true, cost, count, kind };
+}
+
+function upgradePotionTier(state) {
+  ensurePotionState(state);
+  if ((state.potionTier || 1) >= POTION_TIERS.length) return { ok: false, reason: '药水已达最高级' };
+  const cost = potionUpgradeCost(state);
+  if (state.gold < cost) return { ok: false, reason: '金币不足' };
+  state.gold -= cost;
+  state.potionTier = (state.potionTier || 1) + 1;
+  return { ok: true, cost, tier: potionTierDef(state) };
+}
+
+function togglePotionAuto(state, key) {
+  ensurePotionState(state);
+  if (!(key in state.potionAuto)) return;
+  state.potionAuto[key] = !state.potionAuto[key];
+}
+
+function autoBuyPotions(state, stats) {
+  ensurePotionState(state);
+  const a = state.potionAuto;
+  const bought = [];
+  const one = (kind, on, stock, keep) => {
+    if (!on || stock >= keep) return;
+    const r = buyPotions(state, POTION_PACK, kind);
+    if (r.ok) bought.push(r);
+  };
+  one('hp', a.buyHp, state.hpPotions || 0, a.keepHp);
+  if (usesManaPotions(stats)) one('mana', a.buyMana, state.manaPotions || 0, a.keepMana);
+  return bought;
+}
+
+function tryUsePotion(state, hero, stats) {
+  return tickDrinkPotions(state, hero, stats).usedHp;
+}
+
+function tickDrinkPotions(state, hero, stats) {
+  const out = { usedHp: false, usedMana: false, healPct: 0, manaPct: 0 };
+  if (!hero || hero.isDead || !stats) return out;
+  ensurePotionState(state);
+  const a = state.potionAuto;
+  const tier = potionTierDef(state);
+  if (a.useHp && stats.maxHp > 0 && hero.currentHp / stats.maxHp <= 0.42 && (state.hpPotions || 0) > 0) {
+    state.hpPotions -= 1;
+    out.healPct = tier.healPct;
+    hero.currentHp = Math.min(stats.maxHp, hero.currentHp + stats.maxHp * tier.healPct);
+    out.usedHp = true;
+  }
+  if (a.useMana && usesManaPotions(stats) && stats.maxRes > 0
+    && (hero.currentRes || 0) / stats.maxRes <= 0.35 && (state.manaPotions || 0) > 0) {
+    state.manaPotions -= 1;
+    out.manaPct = tier.manaPct;
+    hero.currentRes = Math.min(stats.maxRes, (hero.currentRes || 0) + stats.maxRes * tier.manaPct);
+    out.usedMana = true;
+  }
+  return out;
+}

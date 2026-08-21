@@ -1,9 +1,4 @@
-import {
-  CHARACTERS, SKILLS, SETS, MORPHS, RACES, MONSTER_TYPES, ELITE_AFFIXES,
-  monsterStats, BOSSES, MAPS,
-} from './data.js';
-
-export function getTagCounts(hero) {
+function getTagCounts(hero) {
   const counts = {};
   for (const [id, lv] of Object.entries(hero.skillLevels || {})) {
     if (lv < 1) continue;
@@ -14,7 +9,7 @@ export function getTagCounts(hero) {
   return counts;
 }
 
-export function resonanceBonus(hero) {
+function resonanceBonus(hero) {
   const c = getTagCounts(hero);
   const bonus = { dmg: 1, pierce: 0, aoe: 1, summon: 1 };
   const bump = (tag) => {
@@ -31,7 +26,7 @@ export function resonanceBonus(hero) {
   return bonus;
 }
 
-export function synergyMult(hero, skill) {
+function synergyMult(hero, skill) {
   if (!skill?.synergy) return 1;
   let add = 0;
   for (const s of skill.synergy) {
@@ -40,7 +35,7 @@ export function synergyMult(hero, skill) {
   return 1 + Math.min(add, 2.8);
 }
 
-export function getEquippedMorphs(hero) {
+function getEquippedMorphs(hero) {
   const morphs = [];
   for (const item of Object.values(hero.equipment || {})) {
     if (item?.morphId) {
@@ -55,15 +50,17 @@ export function getEquippedMorphs(hero) {
   return morphs;
 }
 
-export function morphForSkill(hero, skillId) {
+function morphForSkill(hero, skillId) {
   const list = getEquippedMorphs(hero);
   return list.find(m => m.skillId === skillId) || list.find(m => !m.skillId) || null;
 }
 
-export function calcHeroStats(hero) {
+function calcHeroStats(hero, opts = {}) {
   const charDef = CHARACTERS[hero.charId];
   const level = hero.level;
   const reso = resonanceBonus(hero);
+  const liveBuffs = opts.buffs || {};
+  const useLive = !!opts.useCombatBuffs;
   let stats = {
     str: 10 + level * 2,
     agi: 10 + (charDef.mainStat === 'agi' ? level * 2 : 0),
@@ -81,8 +78,27 @@ export function calcHeroStats(hero) {
     skillLevelBonus: 0,
     pierceBonus: 0,
     summonBonus: 0,
-    attackInterval: charDef.attackInterval,
+    eliteDmgPct: 0,
+    aoePct: 0,
+    cdrPct: 0,
+    resRegenPct: 0,
+    enemyResDown: 0,
+    vsUndead: 0,
+    vsDemon: 0,
+    reflectPct: 0,
+    slowAura: 0,
+    zealExtra: 0,
+    sacrificeAmp: 0,
+    magicIgnoreArmor: 0,
+    hammerAoe: 0,
+    fohExtra: 0,
+    hpCostReduce: 0,
+    attackRange: charDef.attackRange || 1.4,
+    rangePct: 0,
+    attackInterval: charDef.attackInterval * 2.55,
     reso,
+    maxRes: 0, resRegen: 0, resName: '魔法', resId: 'mana', resColor: '#4a8cee',
+    resOnHit: 0, resOnKill: 0, resStartFull: true,
   };
 
   if (charDef.mainStat === 'str') stats.str += level * 2;
@@ -94,16 +110,9 @@ export function calcHeroStats(hero) {
     if (lv <= 0) continue;
     const skill = SKILLS[hero.charId]?.[skillId];
     if (!skill) continue;
-    if (skill.damageBonus) stats.physDmgPct += skill.damageBonus * lv;
-    if (skill.armorBonus) stats.armor *= (1 + skill.armorBonus * lv);
-    if (skill.hpBonus) stats.maxHp *= (1 + skill.hpBonus * lv);
-    if (skill.lifesteal) stats.lifesteal += skill.lifesteal * lv;
-    if (skill.damageReduction) stats.damageReduction += skill.damageReduction * Math.max(lv, 1);
-    if (skill.critBonus) stats.critRate += skill.critBonus * lv;
-    if (skill.pierceBonus) stats.pierceBonus += skill.pierceBonus * lv;
-    if (skill.summonBonus) stats.summonBonus += skill.summonBonus * lv;
-    if (skill.allResBonus) stats.allRes += skill.allResBonus * lv;
-    if (skill.skillBonus) stats.skillLevelBonus += skill.skillBonus * Math.ceil(lv / 5);
+    if (skill.type === 'buff' && useLive && !isBuffActive(liveBuffs, skillId)) continue;
+    if (skill.type === 'aura' && !isAuraOn(hero, skillId)) continue;
+    applySkillStatBonuses(stats, skill, lv);
   }
 
   for (const item of Object.values(hero.equipment || {})) {
@@ -116,37 +125,471 @@ export function calcHeroStats(hero) {
   stats.pierceBonus += reso.pierce * 0.15;
   stats.summonBonus *= reso.summon;
 
+  stats.attackSpeed += stats.agi * 0.0015;
+  const train = heroTrainBonuses(hero);
+  stats.damage = Math.floor(stats.damage * (1 + train.damage));
+  stats.attackSpeed += train.attackSpeed;
+  stats.fireDmgPct += train.elemDmg;
+  stats.iceDmgPct += train.elemDmg;
+  stats.lightningDmgPct += train.elemDmg;
+  stats.poisonDmgPct += train.elemDmg;
+  stats.physDmgPct += train.physDmg;
+  stats.cdrPct += train.cdr;
+  stats.attackSpeed = Math.min(0.9, stats.attackSpeed);
+  stats.attackRange += stats.agi * 0.004;
+  stats.attackRange *= (1 + stats.rangePct) * (1 + train.attackRange);
+  stats.attackRange = Math.min(7.2, Math.max(0.9, stats.attackRange));
   stats.maxHp = Math.floor(stats.maxHp);
   stats.damage = Math.floor(stats.damage);
   stats.armor = Math.floor(stats.armor);
-  stats.attackInterval = Math.max(0.25, stats.attackInterval / (1 + stats.attackSpeed));
+  stats.attacksPerSec = 1 / Math.max(1.05, stats.attackInterval / (1 + stats.attackSpeed));
+  stats.attackInterval = 1 / stats.attacksPerSec;
   stats.damageReduction = Math.min(0.75, stats.damageReduction);
+  applyResourceStats(stats, hero);
   return stats;
 }
 
-function applyItemStats(stats, item) {
-  if (item.baseDamage) stats.damage += item.baseDamage;
-  if (item.armor) stats.armor += item.armor;
-  for (const affix of item.affixes || []) {
-    const val = affix.value;
-    switch (affix.stat) {
-      case 'str': stats.str += val; break;
-      case 'agi': stats.agi += val; break;
-      case 'int': stats.int += val; break;
-      case 'hp': stats.maxHp += val; break;
-      case 'armor': stats.armor += val; break;
-      case 'physDmgPct': stats.physDmgPct += val / 100; break;
-      case 'fireDmgPct': stats.fireDmgPct += val / 100; break;
-      case 'iceDmgPct': stats.iceDmgPct += val / 100; break;
-      case 'lightningDmgPct': stats.lightningDmgPct += val / 100; break;
-      case 'critRate': stats.critRate += val / 100; break;
-      case 'critDmg': stats.critDmg += val / 100; break;
-      case 'attackSpeed': stats.attackSpeed += val / 100; break;
-      case 'lifeRegen': stats.lifeRegen += val; break;
-      case 'killHeal': stats.killHeal += val / 100; break;
-      case 'allRes': stats.allRes += val / 100; break;
+function classResource(charId) {
+  return CHARACTERS[charId]?.resource || {
+    id: 'mana', name: '魔法', color: '#4a8cee', maxBase: 30, maxPerLevel: 4, fromInt: 1.5, regen: 3, startFull: true,
+  };
+}
+
+function applyResourceStats(stats, hero) {
+  const r = classResource(hero.charId);
+  const max = Math.floor(
+    (r.maxBase || 0) +
+    (hero.level || 1) * (r.maxPerLevel || 0) +
+    stats.int * (r.fromInt || 0) +
+    stats.str * (r.fromStr || 0)
+  );
+  stats.resId = r.id;
+  stats.resName = r.name;
+  stats.resColor = r.color || '#4a8cee';
+  stats.maxRes = Math.max(1, max);
+  stats.resRegen = Math.round((r.regen + stats.int * (r.regenFromInt || 0.03)) * 10) / 10;
+  if (stats.resRegenPct) stats.resRegen = Math.round(stats.resRegen * (1 + stats.resRegenPct) * 10) / 10;
+  stats.resOnHit = r.onHit || 0;
+  stats.resOnKill = r.onKill || 0;
+  stats.resStartFull = r.startFull !== false;
+}
+
+function clampHeroResource(hero, stats) {
+  const st = stats || calcHeroStats(hero);
+  if (typeof hero.currentRes !== 'number' || Number.isNaN(hero.currentRes)) {
+    hero.currentRes = st.resStartFull ? st.maxRes : 0;
+  }
+  hero.currentRes = Math.max(0, Math.min(st.maxRes, hero.currentRes));
+  return st;
+}
+
+function gainResource(hero, stats, amount) {
+  if (!amount) return;
+  const max = stats?.maxRes || calcHeroStats(hero).maxRes;
+  hero.currentRes = Math.min(max, (hero.currentRes || 0) + amount);
+}
+
+function skillResCost(hero, skill) {
+  if (!skill || skill.type === 'passive' || skill.type === 'aura') return 0;
+  if (skill.resCost != null) return Math.max(0, Math.floor(skill.resCost));
+  if (skill.resGain) return 0;
+  const r = classResource(hero.charId);
+  if (r.id === 'rage') return 0;
+  const lv = Math.max(1, hero.skillLevels?.[skill.id] || 1);
+  const base = (skill.cooldown || 0) > 0 ? skill.cooldown * 4 : 8;
+  const dmg = (skill.damageMult || 1) * 6;
+  return Math.max(6, Math.floor((base + dmg) * (1 - lv * 0.02)));
+}
+
+function skillResGain(hero, skill) {
+  if (!skill) return 0;
+  if (skill.resGain != null) return skill.resGain;
+  if ((skill.resCost || 0) > 0) return 0;
+  const r = classResource(hero.charId);
+  if (r.id === 'rage' && skill.tags?.includes('opener')) return 16;
+  return 0;
+}
+
+function isCoreCombatSkill(skill) {
+  if (!skill) return false;
+  if (skill.channel || skill.tree === 'combat') return true;
+  return (skill.damageMult || 0) >= 1;
+}
+
+function pickReadySkill(hero, ready) {
+  if (!ready?.length) return null;
+  const core = ready.filter(r => isCoreCombatSkill(r.skill));
+  const src = core.length ? core : ready;
+  const spenders = src.filter(r => r.cost > 0);
+  const generators = src.filter(r => r.cost <= 0 && skillResGain(hero, r.skill) > 0);
+  const rest = src.filter(r => r.cost <= 0 && skillResGain(hero, r.skill) <= 0);
+  const rank = (r) => {
+    let n = r.cost;
+    if (r.skill.channel) n += 8;
+    if ((r.skill.tags || []).includes('finisher')) n += 4;
+    if (r.skill.tree === 'combat') n += 2;
+    return n;
+  };
+  const pool = spenders.length ? spenders : (generators.length ? generators : rest);
+  return pool.slice().sort((a, b) => rank(b) - rank(a))[0] || src[0] || ready[0];
+}
+
+function skillBonusGranted(skill, lv) {
+  if (!skill?.skillBonus || lv < 1) return 0;
+  return skill.skillBonus * lv + Math.floor(lv / 5);
+}
+
+function skillBonusBreakdown(hero, opts = {}) {
+  const liveBuffs = opts.buffs || {};
+  const useLive = !!opts.useCombatBuffs;
+  const parts = [];
+  for (const [id, lv] of Object.entries(hero.skillLevels || {})) {
+    if (lv < 1) continue;
+    const skill = SKILLS[hero.charId]?.[id];
+    if (!skill?.skillBonus) continue;
+    if (skill.type === 'buff' && useLive && !isBuffActive(liveBuffs, id)) continue;
+    const add = skillBonusGranted(skill, lv);
+    if (add) parts.push({ id, name: skill.name, add });
+  }
+  for (const s of getSetStatus(hero.equipment)) {
+    for (const [n, bonus] of Object.entries(s.def.bonuses || {})) {
+      if (s.count >= parseInt(n, 10) && bonus.skillLevel) {
+        parts.push({ name: `${s.def.name}${n}件`, add: bonus.skillLevel });
+      }
     }
   }
+  return parts;
+}
+
+function skillLevelParts(hero, skillId, stats) {
+  const skill = SKILLS[hero.charId]?.[skillId];
+  const base = hero.skillLevels?.[skillId] || 0;
+  let bonus = stats?.skillLevelBonus || 0;
+  if (skill?.skillBonus) bonus -= skillBonusGranted(skill, base);
+  bonus = Math.max(0, Math.round(bonus));
+  return { base, bonus, max: skill?.maxLevel || 10, skill };
+}
+
+function effectiveSkillLevel(hero, skillId, stats) {
+  const p = skillLevelParts(hero, skillId, stats);
+  return p.base > 0 ? p.base + p.bonus : 0;
+}
+
+function formatSkillLevelHtml(parts) {
+  if (parts.bonus > 0 && parts.base > 0) {
+    return `${parts.base}<span class="lv-bonus">+${parts.bonus}</span>/${parts.max}`;
+  }
+  return `${parts.base}/${parts.max}`;
+}
+
+function fmtSkillPct(n) {
+  const p = n * 100;
+  if (Math.abs(p - Math.round(p)) < 0.05) return `${Math.round(p)}%`;
+  return `${p.toFixed(1).replace(/\.0$/, '')}%`;
+}
+
+function skillAoeRadius(hero, skill, stats) {
+  if (!skill) return 0;
+  const tags = skill.tags || [];
+  let r = skill.aoeRadius;
+  if (r == null) {
+    if (tags.includes('melee')) r = 1.45;
+    else if (tags.includes('nova') || tags.includes('aoe')) r = 1.9;
+    else if (skill.id === 'meteor' || skill.id === 'blizzard' || skill.id === 'fistOfHeavens' || skill.id === 'thunderstorm' || skill.id === 'hydra') r = 2.4;
+    else r = 1.6;
+  }
+  const lv = Math.max(1, effectiveSkillLevel(hero, skill.id, stats) || 1);
+  r += (skill.aoePerLevel || 0) * Math.max(0, lv - 1);
+  r *= 1 + (stats?.aoePct || 0);
+  if (skill.id === 'blessedHammer' && (stats?.hammerAoe || 0) > 0) r *= 1 + stats.hammerAoe;
+  return r;
+}
+
+function isAroundHeroSkill(skill) {
+  if (!skill) return false;
+  const tags = skill.tags || [];
+  if (skill.channel) return true;
+  if (!skill.aoe) return false;
+  return tags.includes('melee') || tags.includes('nova') ||
+    ['frostNova', 'poisonNova', 'hurricane', 'whirlwind', 'leap', 'fury', 'shockwave', 'fists', 'holyFire', 'thunderstorm', 'warCry', 'mindBlast', 'staticField'].includes(skill.id);
+}
+
+function skillEffectLines(hero, skill, parts, stats) {
+  const lv = parts.base > 0 ? parts.base + (parts.bonus || 0) : 0;
+  const show = Math.max(1, lv);
+  const lines = [];
+  const nowPer = (label, per, fmt = fmtSkillPct) => {
+    if (lv > 0) return `${label} +${fmt(per * lv)}（每级 +${fmt(per)}）`;
+    return `${label} 每级 +${fmt(per)}`;
+  };
+
+  if (skill.damageMult) {
+    const syn = synergyMult(hero, skill);
+    const mult = skill.damageMult * (1 + show * 0.08) * syn;
+    lines.push(`技能伤害 ×${mult.toFixed(2)}（基础 ${skill.damageMult}，每级 +8% 系数）`);
+  }
+  if (skill.damageBonus) lines.push(nowPer('物理伤害', skill.damageBonus));
+  if (skill.hpBonus) {
+    lines.push(lv > 0
+      ? `最大生命 +${fmtSkillPct(skill.hpBonus * lv)}（每级 +${fmtSkillPct(skill.hpBonus)}）`
+      : `最大生命 每级 +${fmtSkillPct(skill.hpBonus)}`);
+  }
+  if (skill.armorBonus) {
+    lines.push(lv > 0
+      ? `护甲 +${fmtSkillPct(skill.armorBonus * lv)}（每级 +${fmtSkillPct(skill.armorBonus)}）`
+      : `护甲 每级 +${fmtSkillPct(skill.armorBonus)}`);
+  }
+  if (skill.lifesteal) lines.push(nowPer('吸血', skill.lifesteal));
+  if (skill.critBonus) lines.push(nowPer('暴击率', skill.critBonus));
+  if (skill.attackSpeed) lines.push(nowPer('攻速', skill.attackSpeed));
+  if (skill.damageReduction) lines.push(nowPer('减伤', skill.damageReduction));
+  if (skill.shieldPct) lines.push(nowPer('护盾减伤', skill.shieldPct));
+  if (skill.allResBonus) lines.push(nowPer('全抗', skill.allResBonus));
+  if (skill.pierceBonus) lines.push(nowPer('穿透', skill.pierceBonus));
+  if (skill.rangeBonus) {
+    lines.push(lv > 0
+      ? `攻击距离 +${(skill.rangeBonus * lv).toFixed(2)}（每级 +${skill.rangeBonus}）`
+      : `攻击距离 每级 +${skill.rangeBonus}`);
+  }
+  if (skill.summonBonus) lines.push(nowPer('召唤伤害', skill.summonBonus));
+  if (typeof skill.summonCount === 'function') {
+    lines.push(`召唤数量 ${skill.summonCount(show)}`);
+  } else if (skill.summonCount) {
+    lines.push(`召唤数量 ${skill.summonCount}`);
+  }
+  if (skill.summonKind && !skill.plantSummon) {
+    const tr = summonTrait(skill);
+    const role = tr.role === 'ranged' ? '远程' : '近战';
+    lines.push(`召唤体 ${role}`);
+    lines.push(`召唤技能：${tr.skillName}（${tr.skillDesc}）`);
+    if (stats?.maxHp) lines.push(`召唤生命 ${summonMaxHp(stats, tr, Math.max(1, lv))}`);
+  }
+  if (skill.skillBonus) {
+    const add = skillBonusGranted(skill, Math.max(lv, 1));
+    lines.push(lv > 0
+      ? `全技能等级 +${skillBonusGranted(skill, lv)}（每级 +${skill.skillBonus}，每 5 级再 +1）`
+      : `全技能等级 每级 +${skill.skillBonus}，每 5 级再 +1`);
+    if (lv < 1) lines.push(`（1 级时 +${add}）`);
+  }
+  if (skill.aoe || skill.aoeRadius) {
+    const r = skillAoeRadius(hero, skill, stats);
+    const extra = skill.aoePerLevel ? `，每级 +${skill.aoePerLevel}` : '';
+    lines.push(`作用范围 ${r.toFixed(1)} 格${extra}`);
+  }
+  if (skill.channel) {
+    const ticks = Math.max(1, Math.floor(skill.channel / (skill.channelTick || 0.32)) + 1);
+    lines.push(`持续 ${skill.channel}s · 约 ${ticks} 次打击（间隔 ${skill.channelTick || 0.32}s）`);
+  }
+  if (skill.plantSummon) {
+    const tick = skill.lingerTick || 0.5;
+    lines.push(`召唤驻守 ${skill.duration}s · 最多 ${skill.summonCap || 3} 只 · 喷火间隔 ${tick}s`);
+  } else if (skill.duration) {
+    const tick = skill.lingerTick || 0.45;
+    const ticks = Math.max(1, Math.floor(skill.duration / tick));
+    lines.push(`持续 ${skill.duration}s（≥冷却）· 约 ${ticks} 次（间隔 ${tick}s）`);
+  }
+  if (skill.hits > 1) lines.push(`命中次数 ${skill.hits}`);
+  if (skill.stunChance) lines.push(`击晕 ${fmtSkillPct(skill.stunChance)}`);
+  if (skill.tauntDuration) {
+    lines.push(`嘲讽持续 ${((skill.tauntDuration || 5) + show * 0.4).toFixed(1)}s（每级 +0.4s）`);
+  }
+  if (skill.buffDuration) {
+    lines.push(`持续时间 ${buffTime(skill, show).toFixed(0)}s`);
+  }
+  if (skill.cooldown > 0) lines.push(`冷却 ${skill.cooldown}s`);
+  if (skill.hpCost) lines.push(`消耗生命 ${fmtSkillPct(skill.hpCost)}`);
+  if (skill.auraSlot) {
+    lines.push(skill.auraSlot === 'off' ? '进攻光环（同时只能启用一道）' : '防守光环（同时只能启用一道）');
+  }
+  if (skill.auraPulse) {
+    const p = skill.auraPulse;
+    const el = { fire: '火焰', ice: '冰霜', lightning: '闪电' }[p.element] || p.element;
+    lines.push(`光环脉冲 ${el} · 半径 ${p.radius} · 间隔 ${p.interval}s`);
+  }
+  if (skill.enemyResDown) lines.push(nowPer('敌人抗性降低', skill.enemyResDown));
+  if (skill.slowAura) lines.push(nowPer('敌人减速', skill.slowAura));
+  if (skill.vsUndead) lines.push(nowPer('对亡灵', skill.vsUndead));
+  if (skill.vsDemon) lines.push(nowPer('对恶魔', skill.vsDemon));
+  if (skill.reflectPct) lines.push(nowPer('荆棘反伤', skill.reflectPct));
+  if (skill.killHeal) lines.push(nowPer('击杀回血', skill.killHeal));
+  if (skill.cdrPct) lines.push(nowPer('冷却缩减', skill.cdrPct));
+  if (skill.resRegenPct) lines.push(nowPer('资源回复', skill.resRegenPct));
+  if (skill.zealExtra) lines.push('启用时：热诚额外连锁');
+  if (skill.sacrificeAmp) lines.push(nowPer('牺牲伤害', skill.sacrificeAmp));
+  if (skill.hpCostReduce) lines.push(nowPer('牺牲自损减免', skill.hpCostReduce));
+  if (skill.magicIgnoreArmor) lines.push(nowPer('魔法无视护甲', skill.magicIgnoreArmor));
+  if (skill.fohExtra) lines.push('启用时：天堂之拳额外电击');
+  if (skill.holyHeal) lines.push(`命中亡灵/恶魔回复生命 ${fmtSkillPct(skill.holyHeal)}`);
+  if (skill.curse) {
+    const c = skill.curse;
+    const bits = [];
+    if (c.physTaken) bits.push(`受伤+${fmtSkillPct(c.physTaken)}`);
+    if (c.dmgDown) bits.push(`敌伤-${fmtSkillPct(c.dmgDown)}`);
+    if (c.resDown) bits.push(`抗性-${fmtSkillPct(c.resDown)}`);
+    if (c.slow) bits.push(`减速${fmtSkillPct(c.slow)}`);
+    if (c.leech) bits.push(`吸血${fmtSkillPct(c.leech)}`);
+    if (c.armorDown) bits.push(`护甲-${fmtSkillPct(c.armorDown)}`);
+    lines.push(`诅咒 ${c.dur}s（唯一）${bits.length ? ' · ' + bits.join('、') : ''}`);
+  }
+  if (skill.synergy) {
+    for (const s of skill.synergy) {
+      const n = SKILLS[hero.charId]?.[s.skill]?.name || s.skill;
+      const slv = hero.skillLevels?.[s.skill] || 0;
+      lines.push(`联动 ${n} 每级 +${s.pct}%${slv ? `（当前 +${s.pct * slv}%）` : ''}`);
+    }
+  }
+  return lines;
+}
+
+function isSkillEnabled(hero, skillId) {
+  return hero?.skillEnabled?.[skillId] !== false;
+}
+
+function auraSlotSkills(hero, slot) {
+  if (!slot) return [];
+  const tree = SKILLS[hero.charId] || {};
+  return Object.keys(tree).filter(id => tree[id].auraSlot === slot && (hero.skillLevels?.[id] || 0) >= 1);
+}
+
+function getActiveAura(hero, slot) {
+  const ids = auraSlotSkills(hero, slot);
+  if (!ids.length) return null;
+  const pick = hero.auraPick?.[slot];
+  if (pick && ids.includes(pick) && isSkillEnabled(hero, pick)) return pick;
+  const on = ids.filter(id => isSkillEnabled(hero, id));
+  return on[0] || null;
+}
+
+function isAuraOn(hero, skillId) {
+  const skill = SKILLS[hero.charId]?.[skillId];
+  if (!skill || skill.type !== 'aura') return false;
+  if ((hero.skillLevels?.[skillId] || 0) < 1) return false;
+  if (!isSkillEnabled(hero, skillId)) return false;
+  if (!skill.auraSlot) return true;
+  return getActiveAura(hero, skill.auraSlot) === skillId;
+}
+
+function toggleSkillEnabled(hero, skillId) {
+  if (!hero) return false;
+  const skill = SKILLS[hero.charId]?.[skillId];
+  hero.skillEnabled = hero.skillEnabled || {};
+  const next = !isSkillEnabled(hero, skillId);
+  hero.skillEnabled[skillId] = next;
+  if (skill?.auraSlot && next) {
+    hero.auraPick = hero.auraPick || {};
+    hero.auraPick[skill.auraSlot] = skillId;
+    for (const id of auraSlotSkills(hero, skill.auraSlot)) {
+      if (id !== skillId) hero.skillEnabled[id] = false;
+    }
+  }
+  return isSkillEnabled(hero, skillId);
+}
+
+function combatSkillQueue(hero) {
+  const tree = SKILLS[hero.charId] || {};
+  const order = [...(hero.skillPriorities || hero.equippedSkills || [])];
+  const seen = new Set();
+  const ids = [];
+  for (const id of order) {
+    if (!id || seen.has(id) || !tree[id]) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  for (const id of Object.keys(tree)) {
+    if (seen.has(id)) continue;
+    ids.push(id);
+  }
+  return ids;
+}
+
+function isBuffActive(buffs, skillId) {
+  const b = buffs?.[skillId];
+  if (!b) return false;
+  if (b.perm) return true;
+  return (b.t || 0) > 0;
+}
+
+function applySkillStatBonuses(stats, skill, lv) {
+  if (skill.damageBonus) stats.physDmgPct += skill.damageBonus * lv;
+  if (skill.armorBonus) stats.armor *= (1 + skill.armorBonus * lv);
+  if (skill.hpBonus) stats.maxHp *= (1 + skill.hpBonus * lv);
+  if (skill.lifesteal) stats.lifesteal += skill.lifesteal * lv;
+  if (skill.damageReduction) stats.damageReduction += skill.damageReduction * Math.max(lv, 1);
+  if (skill.critBonus) stats.critRate += skill.critBonus * lv;
+  if (skill.pierceBonus) stats.pierceBonus += skill.pierceBonus * lv;
+  if (skill.summonBonus) stats.summonBonus += skill.summonBonus * lv;
+  if (skill.attackSpeed) stats.attackSpeed += skill.attackSpeed * lv;
+  if (skill.allResBonus) stats.allRes += skill.allResBonus * lv;
+  if (skill.skillBonus) stats.skillLevelBonus += skillBonusGranted(skill, lv);
+  if (skill.rangeBonus) stats.attackRange += skill.rangeBonus * lv;
+  if (skill.shieldPct) stats.damageReduction += skill.shieldPct * lv;
+  if (skill.fireDmgBonus) stats.fireDmgPct += skill.fireDmgBonus * lv;
+  if (skill.iceDmgBonus) stats.iceDmgPct += skill.iceDmgBonus * lv;
+  if (skill.lightningDmgBonus) stats.lightningDmgPct += skill.lightningDmgBonus * lv;
+  if (skill.aoeBonus) stats.aoePct += skill.aoeBonus * lv;
+  if (skill.enemyResDown) stats.enemyResDown += skill.enemyResDown * lv;
+  if (skill.vsUndead) stats.vsUndead += skill.vsUndead * lv;
+  if (skill.vsDemon) stats.vsDemon += skill.vsDemon * lv;
+  if (skill.reflectPct) stats.reflectPct += skill.reflectPct * lv;
+  if (skill.slowAura) stats.slowAura += skill.slowAura * Math.max(1, lv);
+  if (skill.zealExtra) stats.zealExtra += skill.zealExtra + Math.floor(lv / 4);
+  if (skill.sacrificeAmp) stats.sacrificeAmp += skill.sacrificeAmp * lv;
+  if (skill.magicIgnoreArmor) stats.magicIgnoreArmor += skill.magicIgnoreArmor * lv;
+  if (skill.hammerAoe) stats.hammerAoe += skill.hammerAoe * lv;
+  if (skill.fohExtra) stats.fohExtra += skill.fohExtra * lv;
+  if (skill.hpCostReduce) stats.hpCostReduce = Math.min(0.75, stats.hpCostReduce + skill.hpCostReduce * lv);
+  if (skill.killHeal) stats.killHeal += skill.killHeal * lv;
+  if (skill.lifeRegen) stats.lifeRegen += skill.lifeRegen * lv;
+  if (skill.cdrPct) stats.cdrPct += skill.cdrPct * lv;
+  if (skill.resRegenPct) stats.resRegenPct += skill.resRegenPct * lv;
+  if (skill.eliteDmgPct) stats.eliteDmgPct += skill.eliteDmgPct * lv;
+  if (skill.resOnKill) stats.resOnKill += skill.resOnKill * lv;
+}
+
+function applyAffixToStats(stats, affix) {
+  if (!affix) return;
+  const val = affix.value;
+  switch (affix.stat) {
+    case 'str': stats.str += val; break;
+    case 'agi': stats.agi += val; break;
+    case 'int': stats.int += val; break;
+    case 'hp': stats.maxHp += val; break;
+    case 'armor': stats.armor += val; break;
+    case 'physDmgPct': stats.physDmgPct += val / 100; break;
+    case 'fireDmgPct': stats.fireDmgPct += val / 100; break;
+    case 'iceDmgPct': stats.iceDmgPct += val / 100; break;
+    case 'lightningDmgPct': stats.lightningDmgPct += val / 100; break;
+    case 'poisonDmgPct': stats.poisonDmgPct += val / 100; break;
+    case 'critRate': stats.critRate += val / 100; break;
+    case 'critDmg': stats.critDmg += val / 100; break;
+    case 'attackSpeed': stats.attackSpeed += val / 100; break;
+    case 'lifeRegen': stats.lifeRegen += val; break;
+    case 'killHeal': stats.killHeal += val / 100; break;
+    case 'allRes': stats.allRes += val / 100; break;
+    case 'attackRange': stats.rangePct += val / 100; break;
+    case 'skillLevel': stats.skillLevelBonus += val; break;
+    case 'eliteDmgPct': stats.eliteDmgPct += val / 100; break;
+    case 'resRegenPct': stats.resRegenPct += val / 100; break;
+    case 'aoePct': stats.aoePct += val / 100; break;
+    case 'cdrPct': stats.cdrPct += val / 100; break;
+    case 'summonBonus': stats.summonBonus += val / 100; break;
+    case 'lifesteal': stats.lifesteal += val / 100; break;
+    case 'damageReduction': stats.damageReduction += val / 100; break;
+  }
+}
+
+function scaledAffix(affix, mult) {
+  if (!affix || mult === 1) return affix;
+  return { ...affix, value: Math.round(affix.value * mult * 1000) / 1000 };
+}
+
+function applyItemStats(stats, item) {
+  const m = itemEnhanceMult(item);
+  if (item.baseDamage) stats.damage += Math.round(item.baseDamage * m);
+  if (item.armor) stats.armor += Math.round(item.armor * m);
+  if (item.attackSpeed) stats.attackSpeed += item.attackSpeed * m;
+  for (const affix of item.affixes || []) applyAffixToStats(stats, scaledAffix(affix, m));
+  if (item.exclusiveAffix) applyAffixToStats(stats, scaledAffix(item.exclusiveAffix, m));
 }
 
 function applySetBonuses(stats, equipment) {
@@ -163,14 +606,31 @@ function applySetBonuses(stats, equipment) {
         if (bonus.hp) stats.maxHp += bonus.hp;
         if (bonus.skillLevel) stats.skillLevelBonus += bonus.skillLevel;
         if (bonus.fireDmgPct) stats.fireDmgPct += bonus.fireDmgPct;
+        if (bonus.iceDmgPct) stats.iceDmgPct += bonus.iceDmgPct;
+        if (bonus.lightningDmgPct) stats.lightningDmgPct += bonus.lightningDmgPct;
         if (bonus.physDmgPct) stats.physDmgPct += bonus.physDmgPct;
         if (bonus.pierceBonus) stats.pierceBonus += bonus.pierceBonus;
+        if (bonus.critRate) stats.critRate += bonus.critRate;
+        if (bonus.allRes) stats.allRes += bonus.allRes;
+        if (bonus.damageReduction) stats.damageReduction += bonus.damageReduction;
+        if (bonus.armor) stats.armor += bonus.armor;
+        if (bonus.summonBonus) stats.summonBonus += bonus.summonBonus;
+        if (bonus.attackRange) stats.attackRange += bonus.attackRange;
+        if (bonus.poisonDmgPct) stats.poisonDmgPct += bonus.poisonDmgPct;
+        if (bonus.eliteDmgPct) stats.eliteDmgPct += bonus.eliteDmgPct;
+        if (bonus.aoePct) stats.aoePct += bonus.aoePct;
+        if (bonus.cdrPct) stats.cdrPct += bonus.cdrPct;
+        if (bonus.critDmg) stats.critDmg += bonus.critDmg;
+        if (bonus.lifesteal) stats.lifesteal += bonus.lifesteal;
+        if (bonus.lifeRegen) stats.lifeRegen += bonus.lifeRegen;
+        if (bonus.resRegenPct) stats.resRegenPct += bonus.resRegenPct;
+        if (bonus.killHeal) stats.killHeal += bonus.killHeal;
       }
     }
   }
 }
 
-export function calcDPS(hero) {
+function calcDPS(hero) {
   const stats = calcHeroStats(hero);
   const charDef = CHARACTERS[hero.charId];
   const mainStat = stats[charDef.mainStat] || 10;
@@ -182,8 +642,10 @@ export function calcDPS(hero) {
   for (const skillId of equipped) {
     const skill = SKILLS[hero.charId]?.[skillId];
     if (!skill || skill.type === 'passive' || skill.type === 'aura') continue;
-    const lv = (hero.skillLevels?.[skillId] || 0) + stats.skillLevelBonus;
+    if (!isSkillEnabled(hero, skillId)) continue;
+    const lv = effectiveSkillLevel(hero, skillId, stats);
     if (lv <= 0 && skill.type !== 'buff') continue;
+    if (!skillWeaponReady(hero, skill).ok) continue;
     const mult = (skill.damageMult || 1) * (1 + Math.max(lv, 1) * 0.08) * synergyMult(hero, skill);
     const cd = Math.max(skill.cooldown || 1, 0.6);
     dps += (baseDmg * mult) / cd;
@@ -192,13 +654,13 @@ export function calcDPS(hero) {
   return Math.floor(dps);
 }
 
-export function calcEHP(hero, monsterLevel = 10) {
+function calcEHP(hero, monsterLevel = 10) {
   const stats = calcHeroStats(hero);
   const armorFactor = 1 + stats.armor / (stats.armor + 50 * monsterLevel);
   return Math.floor(stats.maxHp * armorFactor / Math.max(0.25, 1 - stats.damageReduction));
 }
 
-export function calcDamage(hero, monster, skill = null) {
+function calcDamage(hero, monster, skill = null) {
   const stats = calcHeroStats(hero);
   const charDef = CHARACTERS[hero.charId];
   const mainStat = stats[charDef.mainStat] || 10;
@@ -208,7 +670,7 @@ export function calcDamage(hero, monster, skill = null) {
   let hits = 1;
 
   if (skill) {
-    const lv = (hero.skillLevels?.[skill.id] || 0) + stats.skillLevelBonus;
+    const lv = effectiveSkillLevel(hero, skill.id, stats);
     skillMult = (skill.damageMult || 1) * (1 + Math.max(lv, 1) * 0.08) * synergyMult(hero, skill);
     element = skill.element || 'physical';
     hits = skill.hits || 1;
@@ -223,6 +685,11 @@ export function calcDamage(hero, monster, skill = null) {
       if (morph.id === 'trail') skillMult *= 1.15;
     }
     if (skill.static && monster.isBoss) skillMult *= 0.35;
+    if (skill.id === 'zeal' && (stats.zealExtra || 0) > 0) hits += stats.zealExtra;
+    if (skill.id === 'sacrifice' && (stats.sacrificeAmp || 0) > 0) skillMult *= 1 + stats.sacrificeAmp;
+    if (skill.id === 'fistOfHeavens' && (stats.fohExtra || 0) > 0) skillMult *= 1 + stats.fohExtra;
+    if (skill.id === 'fistOfHeavens' && (monster.race === 'demon')) skillMult *= 1.2;
+    if (skill.id === 'holyBolt' && (monster.race === 'undead' || monster.race === 'demon')) skillMult *= 1.15;
   }
 
   let dmgBonus = stats.physDmgPct;
@@ -234,39 +701,89 @@ export function calcDamage(hero, monster, skill = null) {
   let damage = stats.damage * (1 + mainStat / 100) * skillMult * (1 + dmgBonus) * hits;
   const isCrit = Math.random() < stats.critRate;
   if (isCrit) damage *= stats.critDmg;
-  if (monster.kind === 'rare' || monster.kind === 'rareBoss' || monster.isBoss) {
+  if (monster.kind === 'rare' || monster.kind === 'rareBoss' || monster.kind === 'hidden' || monster.isBoss || monster.kind === 'elite') {
+    damage *= 1 + (stats.eliteDmgPct || 0);
     if (isCrit) damage *= 1.1;
   }
 
   const monsterRes = monster.resistances?.[element] || 0;
-  const resCap = Math.min(0.75, monsterRes - stats.allRes * 0.5);
-  damage *= (1 - resCap);
+  const curseRes = monster.curse?.resDown || 0;
+  const resCap = Math.min(0.75, monsterRes - stats.allRes * 0.5 - (stats.enemyResDown || 0) - curseRes);
+  damage *= (1 - Math.max(0, resCap));
+  if (monster.curse?.physTaken && element === 'physical') damage *= 1 + monster.curse.physTaken;
+  if (monster.curse?.armorDown) damage *= 1 + monster.curse.armorDown * 0.65;
+  if (monster.race === 'undead' && stats.vsUndead) damage *= 1 + stats.vsUndead;
+  if (monster.race === 'demon' && stats.vsDemon) damage *= 1 + stats.vsDemon;
+  if ((stats.magicIgnoreArmor || 0) > 0 && (element === 'magic' || skill?.id === 'blessedHammer' || skill?.id === 'holyBolt')) {
+    damage *= 1 + stats.magicIgnoreArmor * 0.5;
+  }
   damage *= 0.9 + Math.random() * 0.2;
-  if (aoe) damage *= stats.reso.aoe;
+  if (aoe) damage *= (stats.reso && stats.reso.aoe) || 1;
   damage *= 1 + (stats.summonBonus || 0) * 0.25;
   return { damage: Math.max(1, Math.floor(damage)), isCrit, element, aoe };
 }
 
-export function calcMonsterDamage(monster, hero) {
+function calcMonsterDamage(monster, hero) {
   const stats = calcHeroStats(hero);
   let dmg = monster.damage;
   const armorFactor = stats.armor / (stats.armor + 50 * monster.level);
   dmg *= (1 - armorFactor);
   dmg *= (1 - stats.damageReduction);
   dmg *= (1 - stats.allRes * 0.5);
+  if (monster.curse?.dmgDown) dmg *= (1 - monster.curse.dmgDown);
   return Math.max(1, Math.floor(dmg));
 }
 
-function rollKind() {
+function rollKind(clearFactor = 0) {
+  const f = Math.max(0, clearFactor);
+  const hiddenP = f < 0.75 ? 0 : Math.min(0.11, (f - 0.75) * 0.045);
+  const rareP = 0.09 + Math.min(0.20, f * 0.065);
+  const eliteP = 0.16 + Math.min(0.24, f * 0.07);
   const r = Math.random();
-  if (r < 0.72) return 'normal';
-  if (r < 0.88) return 'elite';
-  if (r < 0.97) return 'rare';
-  return 'elite';
+  if (r < hiddenP) return 'hidden';
+  if (r < hiddenP + rareP) return 'rare';
+  if (r < hiddenP + rareP + eliteP) return 'elite';
+  return 'normal';
 }
 
-export function createMonster(map, opts = {}) {
-  const { forceBoss = false, bossId = null, forceRareBoss = false } = opts;
+function goblinSpawnChance(clearFactor = 0) {
+  return 0.01 + Math.min(0.07, Math.max(0, clearFactor) * 0.022);
+}
+
+function createTreasureGoblin(map) {
+  const level = map.levelMin + Math.floor(Math.random() * (map.levelMax - map.levelMin + 1));
+  const ms = monsterStats(level);
+  const t = MONSTER_TYPES.goblin;
+  const hp = Math.floor(ms.hp * t.hp);
+  const piles = 5 + Math.floor(Math.random() * 4);
+  const items = 4 + Math.floor(Math.random() * 4);
+  return {
+    name: '宝藏哥布林',
+    level,
+    hp, maxHp: hp,
+    damage: Math.max(1, Math.floor(ms.damage * t.dmg)),
+    armor: Math.floor(ms.armor * 0.7),
+    exp: Math.floor(ms.exp * t.exp),
+    gold: Math.floor(ms.gold * (22 + piles * 3)),
+    goldPiles: piles,
+    lootRolls: items,
+    isBoss: false,
+    kind: 'goblin',
+    race: 'goblin',
+    treasureGoblin: true,
+    flee: true,
+    resistances: {},
+    eliteAffixes: [],
+    iso: { x: 9.2 + Math.random() * 2.4, y: 1.6 + Math.random() * 5.2 },
+    attackTimer: 99,
+    ranged: false,
+    attackRange: 0.7,
+    moveSpeed: 3.55,
+  };
+}
+
+function createMonster(map, opts = {}) {
+  const { forceBoss = false, bossId = null, forceRareBoss = false, clearFactor = 0 } = opts;
   if (forceBoss && bossId) {
     const boss = BOSSES[bossId];
     const kind = forceRareBoss ? 'rareBoss' : (boss.type || 'actBoss');
@@ -278,35 +795,152 @@ export function createMonster(map, opts = {}) {
       armor: boss.armor, resistances: { ...boss.resistances },
       isBoss: true, bossId, kind, race: boss.race, phase: 1,
       eliteAffixes: forceRareBoss ? rollEliteAffixes(2) : [],
-      iso: { x: 5.5, y: 3.2 },
+      iso: { x: 8.2, y: 4.2 }, attackTimer: 1.8,
+      ranged: false, attackRange: 1.5, moveSpeed: 1.8,
     };
   }
 
-  const kind = rollKind();
-  const t = MONSTER_TYPES[kind];
+  const kind = opts.forceKind || rollKind(clearFactor);
+  const t = MONSTER_TYPES[kind] || MONSTER_TYPES.normal;
   const level = map.levelMin + Math.floor(Math.random() * (map.levelMax - map.levelMin + 1));
   const ms = monsterStats(level);
-  const mdef = map.monsters[Math.floor(Math.random() * map.monsters.length)];
+  const hiddenPool = HIDDEN_BY_ACT[map.act] || HIDDEN_BY_ACT[5] || HIDDEN_BY_ACT[1];
+  const mdef = kind === 'hidden'
+    ? hiddenPool[Math.floor(Math.random() * hiddenPool.length)]
+    : map.monsters[Math.floor(Math.random() * map.monsters.length)];
   const race = RACES[mdef.race] || RACES.humanoid;
-  const affixes = kind === 'elite' ? rollEliteAffixes(1) : kind === 'rare' ? rollEliteAffixes(2 + (Math.random() < 0.5 ? 1 : 0)) : [];
-  let hp = ms.hp * t.hp;
-  let dmg = ms.damage * t.dmg;
+  const affixes = kind === 'elite' ? rollEliteAffixes(1)
+    : kind === 'rare' ? rollEliteAffixes(2 + (Math.random() < 0.5 ? 1 : 0))
+    : kind === 'hidden' ? rollEliteAffixes(3)
+    : [];
+  const early = Math.min(1, 0.4 + level / 22);
+  const kindHp = kind === 'hidden' ? (2.4 + 5.2 * early)
+    : kind === 'rare' ? (1.8 + 4.2 * early)
+    : kind === 'elite' ? (1.35 + 1.15 * early)
+    : t.hp;
+  const kindDmg = kind === 'hidden' ? (1.35 + 1.15 * early)
+    : kind === 'rare' ? (1.2 + 1.0 * early)
+    : kind === 'elite' ? (1.15 + 0.35 * early)
+    : t.dmg;
+  let hp = ms.hp * kindHp;
+  let dmg = ms.damage * kindDmg;
   for (const a of affixes) {
     if (a.hp) hp *= a.hp;
     if (a.dmg) dmg *= a.dmg;
   }
   const prefix = affixes.map(a => a.name).filter(Boolean).join('·');
-  const name = prefix ? `${prefix} ${mdef.name}` : mdef.name;
+  const ranged = !!mdef.ranged;
+  let name = prefix ? `${prefix} ${mdef.name}` : mdef.name;
+  if (kind === 'hidden') name = `隐藏·${mdef.name}`;
+  if (ranged) dmg *= 0.82;
   return {
     name, level,
     hp: Math.floor(hp), maxHp: Math.floor(hp),
     damage: Math.floor(dmg), armor: ms.armor,
-    exp: Math.floor(ms.exp * t.exp), gold: Math.floor(ms.gold * t.exp * 0.6),
+    exp: Math.floor(ms.exp * t.exp), gold: Math.floor(ms.gold * t.exp * (kind === 'hidden' ? 1.4 : 0.6)),
     isBoss: false, kind, race: mdef.race,
     resistances: { ...race.res },
     eliteAffixes: affixes,
-    iso: { x: 4 + Math.random() * 3, y: 1.5 + Math.random() * 3 },
+    iso: { x: 6.5 + Math.random() * 4.5, y: 2 + Math.random() * 6 },
+    attackTimer: 1.1 + Math.random() * 1.1,
+    ranged,
+    attackRange: ranged ? 4.4 + Math.random() * 0.6 : 1.15,
+    moveSpeed: ranged ? 1.55 : 2.25,
   };
+}
+
+function getSetStatus(equipment) {
+  const setCounts = {};
+  for (const item of Object.values(equipment || {})) {
+    if (item?.setId) setCounts[item.setId] = (setCounts[item.setId] || 0) + 1;
+  }
+  return Object.entries(setCounts).map(([setId, count]) => ({
+    setId, count, def: SETS[setId],
+  })).filter(s => s.def);
+}
+
+const SUMMON_TRAITS = {
+  raven: { role: 'ranged', hp: 0.16, dmg: 0.14, range: 3.8, interval: 0.5, skillName: '啄击', skillDesc: '远程连啄', vfx: 'proj' },
+  spiritWolf: { role: 'melee', hp: 0.42, dmg: 0.26, range: 1.15, interval: 0.68, skillName: '撕咬', skillDesc: '近战撕咬', vfx: 'slash' },
+  oakSage: { role: 'ranged', hp: 0.38, dmg: 0.1, range: 3.1, interval: 1.35, skillName: '生命脉冲', skillDesc: '治疗主人', vfx: 'nova', heal: 0.018 },
+  grizzly: { role: 'melee', hp: 1.2, dmg: 0.4, range: 1.22, interval: 0.95, skillName: '重击', skillDesc: '近战重击并可打断', vfx: 'slash', stun: true },
+  valkyrie: { role: 'melee', hp: 0.9, dmg: 0.34, range: 1.28, interval: 0.72, skillName: '穿刺', skillDesc: '近战穿刺', vfx: 'slash' },
+  shadowWarrior: { role: 'melee', hp: 0.55, dmg: 0.3, range: 1.18, interval: 0.6, skillName: '影袭', skillDesc: '近战影袭', vfx: 'slash' },
+  shadowMaster: { role: 'ranged', hp: 0.62, dmg: 0.28, range: 3.4, interval: 0.7, skillName: '影刃', skillDesc: '远程掷刃', vfx: 'proj' },
+  raiseSkeleton: { role: 'melee', hp: 0.3, dmg: 0.2, range: 1.12, interval: 0.7, skillName: '骨刃', skillDesc: '近战劈砍', vfx: 'slash' },
+  clayGolem: { role: 'melee', hp: 1.45, dmg: 0.2, range: 1.25, interval: 1.05, skillName: '碾压', skillDesc: '近战嘲讽碾压', vfx: 'slash', slow: true },
+  fireGolem: { role: 'ranged', hp: 0.95, dmg: 0.3, range: 3.6, interval: 0.85, skillName: '火球', skillDesc: '远程喷火', vfx: 'proj', element: 'fire' },
+  revive: { role: 'melee', hp: 0.52, dmg: 0.28, range: 1.15, interval: 0.78, skillName: '尸袭', skillDesc: '近战扑击', vfx: 'slash' },
+};
+
+function summonTrait(skill) {
+  if (!skill) return { role: 'melee', hp: 0.35, dmg: 0.22, range: 1.2, interval: 0.75, skillName: '打击', skillDesc: '协同攻击', vfx: 'slash' };
+  return SUMMON_TRAITS[skill.id] || SUMMON_TRAITS[skill.summonKind] || {
+    role: skill.tags?.includes('projectile') ? 'ranged' : 'melee',
+    hp: 0.35, dmg: 0.22, range: 1.2, interval: 0.75,
+    skillName: '打击', skillDesc: '协同攻击', vfx: skill.tags?.includes('projectile') ? 'proj' : 'slash',
+  };
+}
+
+function summonMaxHp(stats, trait, lv) {
+  return Math.max(8, Math.floor((stats.maxHp || 80) * (trait.hp || 0.3) * (1 + (stats.summonBonus || 0) * 0.35) * (1 + Math.max(1, lv) * 0.06)));
+}
+
+function getSummonRoster(hero) {
+  const out = [];
+  const tree = SKILLS[hero.charId] || {};
+  const stats = calcHeroStats(hero);
+  for (const [id, skill] of Object.entries(tree)) {
+    const lv = hero.skillLevels?.[id] || 0;
+    if (lv < 1 || !skill.summonKind || skill.plantSummon) continue;
+    const n = typeof skill.summonCount === 'function' ? skill.summonCount(lv) : (skill.summonCount || 1);
+    const tr = summonTrait(skill);
+    const maxHp = summonMaxHp(stats, tr, lv);
+    for (let i = 0; i < n; i++) {
+      out.push({
+        key: `${id}:${i}`,
+        skillId: id,
+        kind: skill.summonKind,
+        name: skill.name,
+        pal: skill.summonPal || ['#4a4a58', '#808090', '#c0c0d0'],
+        scale: skill.summonScale || 0.7,
+        role: tr.role,
+        maxHp,
+        dmgMult: tr.dmg,
+        atkRange: tr.range,
+        interval: tr.interval,
+        skillName: tr.skillName,
+        vfx: tr.vfx,
+        heal: tr.heal || 0,
+        stun: !!tr.stun,
+        slow: !!tr.slow,
+        element: tr.element || '',
+      });
+    }
+  }
+  return out.slice(0, 10);
+}
+
+function skillVfxKind(skill) {
+  const tags = skill.tags || [];
+  if (skill.id === 'whirlwind' || skill.channel) return 'spin';
+  if (skill.id === 'meteor' || skill.id === 'fistOfHeavens') return 'meteor';
+  if (skill.id === 'blizzard') return 'blizzard';
+  if (skill.id === 'hurricane' || skill.id === 'fireWall' || skill.id === 'thunderstorm') return 'storm';
+  if (skill.plantSummon || skill.id === 'hydra') return 'trap';
+  if (tags.includes('projectile') || skill.chain) return 'proj';
+  if (tags.includes('aoe') && (skill.element === 'ice' || skill.element === 'poison' || tags.includes('control'))) return 'nova';
+  if (tags.includes('trap')) return 'trap';
+  if (tags.includes('aoe')) return 'burst';
+  if (tags.includes('melee')) return 'slash';
+  return 'burst';
+}
+
+function elementColor(element) {
+  return {
+    fire: '#ff6a30', ice: '#80d8ff', lightning: '#ffe060',
+    poison: '#70e040', magic: '#c080ff', physical: '#e8dcc8',
+  }[element] || '#ffe8a0';
 }
 
 function rollEliteAffixes(n) {
@@ -319,19 +953,19 @@ function rollEliteAffixes(n) {
   return out;
 }
 
-export function estimateBossWinRate(hero, boss) {
+function estimateBossWinRate(hero, boss) {
   const dps = calcDPS(hero);
   const ehp = calcEHP(hero, boss.level);
   const timeToKill = (boss.maxHp || boss.hp) / Math.max(dps, 1);
   const stats = calcHeroStats(hero);
   const monsterDmg = boss.damage * (1 - stats.armor / (stats.armor + 50 * boss.level));
   const timeToDie = (ehp / Math.max(monsterDmg, 1)) * 1.5;
-  if (timeToKill <= timeToDie * 0.5) return Math.min(95, 60 + ((timeToDie - timeToKill) / timeToDie) * 40);
-  if (timeToKill <= timeToDie) return Math.floor(30 + ((timeToDie - timeToKill) / timeToDie) * 50);
-  return Math.max(5, Math.floor(30 * timeToDie / timeToKill));
+  if (timeToKill <= timeToDie * 0.5) return Math.round(Math.min(95, 60 + ((timeToDie - timeToKill) / timeToDie) * 40));
+  if (timeToKill <= timeToDie) return Math.round(30 + ((timeToDie - timeToKill) / timeToDie) * 50);
+  return Math.max(5, Math.round(30 * timeToDie / timeToKill));
 }
 
-export function killsPerMinute(hero, map) {
+function killsPerMinute(hero, map) {
   const avgLevel = (map.levelMin + map.levelMax) / 2;
   const dps = calcDPS(hero);
   const ms = monsterStats(Math.floor(avgLevel));
@@ -339,15 +973,130 @@ export function killsPerMinute(hero, map) {
   return Math.max(1, Math.floor(60 / killTime));
 }
 
-export function expPerHour(hero, map) {
+function expPerHour(hero, map) {
   const kpm = killsPerMinute(hero, map);
   const avgLevel = (map.levelMin + map.levelMax) / 2;
   const ms = monsterStats(Math.floor(avgLevel));
-  return kpm * 60 * ms.exp;
+  const info = expLevelInfo(hero.level, avgLevel);
+  return Math.floor(kpm * 60 * ms.exp * info.mult);
 }
 
-export function getMap(id) {
+function expLevelInfo(heroLevel, contentLevel) {
+  const d = (heroLevel || 1) - (contentLevel || 1);
+  if (d >= 6) {
+    const mult = Math.max(0.05, Math.round((1 - (d - 5) * 0.12) * 100) / 100);
+    return { mult, kind: 'high', label: `经验惩罚（过高 −${Math.round((1 - mult) * 100)}%）` };
+  }
+  if (d <= -6) {
+    const mult = Math.max(0.2, Math.round((1 - (-d - 5) * 0.08) * 100) / 100);
+    return { mult, kind: 'low', label: `经验惩罚（过低 −${Math.round((1 - mult) * 100)}%）` };
+  }
+  return { mult: 1, kind: '', label: '' };
+}
+
+function mapExpPenalty(hero, map) {
+  if (!hero || !map) return expLevelInfo(1, 1);
+  const avg = ((map.levelMin || 1) + (map.levelMax || 1)) / 2;
+  return expLevelInfo(hero.level, avg);
+}
+
+function grantKillExp(hero, raw, monsterLevel) {
+  const info = expLevelInfo(hero.level, monsterLevel);
+  const got = Math.max(0, Math.floor((raw || 0) * info.mult));
+  hero.exp += got;
+  return { got, raw: raw || 0, info };
+}
+
+function riftProgressNeed(floor) {
+  return 70 + Math.min(50, Math.max(0, (floor || 1) - 1) * 2);
+}
+
+function makeRiftMap(floor) {
+  const f = Math.max(1, Math.floor(floor || 1));
+  const bump = (f - 1) * 6;
+  const ws = MAPS.find(m => m.id === 'worldstone');
+  return {
+    id: 'rift',
+    name: `小秘境 ${f} 层`,
+    act: 6,
+    isRift: true,
+    riftFloor: f,
+    levelMin: 80 + bump,
+    levelMax: 88 + bump,
+    tiles: 'crypt',
+    packMin: 4,
+    packMax: 6,
+    clearKills: riftProgressNeed(f),
+    monsters: (ws?.monsters || []).concat([
+      { name: '秘境魔', race: 'demon' },
+      { name: '裂隙弓手', race: 'undead', ranged: true },
+    ]),
+  };
+}
+
+function createRiftGuardian(map) {
+  const f = Math.max(1, map?.riftFloor || 1);
+  const baal = BOSSES.baal;
+  const hp = Math.floor(baal.hp * 1.08 * Math.pow(1.22, f - 1));
+  const dmg = Math.floor(baal.damage * 1.08 * Math.pow(1.14, f - 1));
+  return {
+    name: `秘境守护者`,
+    level: 88 + (f - 1) * 6,
+    hp, maxHp: hp,
+    damage: dmg,
+    armor: Math.floor(baal.armor * (1 + (f - 1) * 0.06)),
+    resistances: { ...(baal.resistances || {}) },
+    isBoss: true,
+    riftBoss: true,
+    kind: 'riftBoss',
+    race: baal.race || 'demon',
+    phase: 1,
+    eliteAffixes: rollEliteAffixes(2),
+    iso: { x: 8.2, y: 4.2 },
+    attackTimer: 1.6,
+    ranged: false,
+    attackRange: 1.55,
+    moveSpeed: 1.85,
+    exp: 120 + f * 18,
+  };
+}
+
+function getMap(id) {
+  if (id === 'rift') return makeRiftMap(1);
   return MAPS.find(m => m.id === id) || MAPS[0];
 }
 
-export { MAPS };
+function isoDist(a, b) {
+  if (!a || !b) return 999;
+  return Math.hypot((a.x || 0) - (b.x || 0), (a.y || 0) - (b.y || 0));
+}
+
+function buffTime(skill, lv) {
+  return (skill.buffDuration || 16) + Math.max(1, lv) * 1.6;
+}
+
+function collectHudBuffs(hero, buffs) {
+  const out = [];
+  const tree = SKILLS[hero.charId] || {};
+  const stats = calcHeroStats(hero, { useCombatBuffs: true, buffs });
+  for (const [id, skill] of Object.entries(tree)) {
+    const parts = skillLevelParts(hero, id, stats);
+    if (parts.base < 1) continue;
+    if (skill.type === 'aura') {
+      if (!isAuraOn(hero, id)) continue;
+      out.push({
+        id, name: skill.name, kind: 'aura',
+        lv: parts.bonus > 0 ? `${parts.base}+${parts.bonus}` : parts.base,
+        time: '光环',
+      });
+    }
+  }
+  for (const [id, b] of Object.entries(buffs || {})) {
+    if (b.perm) continue;
+    if ((b.t || 0) <= 0) continue;
+    const parts = skillLevelParts(hero, id, stats);
+    const lv = parts.base > 0 && parts.bonus > 0 ? `${parts.base}+${parts.bonus}` : (b.lv || parts.base || 1);
+    out.push({ id, name: b.name, kind: b.kind || 'buff', lv, time: `${Math.ceil(b.t)}s` });
+  }
+  return out;
+}
