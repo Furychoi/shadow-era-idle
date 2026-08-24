@@ -213,6 +213,7 @@ function bindEvents() {
   document.getElementById('btn-offline')?.addEventListener('click', showOfflineModal);
   document.getElementById('btn-skills')?.addEventListener('click', showSkillModal);
   document.getElementById('char-tabs')?.addEventListener('click', (e) => {
+    e.stopPropagation();
     const tab = e.target.closest('.char-tab');
     if (!tab?.dataset.char) return;
     if (tab.classList.contains('locked')) {
@@ -699,6 +700,10 @@ function runCampAct(act, uid, slot) {
     selInvUid = null;
     selInvUids = new Set();
     selSlot = r.dest;
+    hideItemTip();
+    lastCampSig = '';
+    renderAll();
+    return;
   } else if (act === 'unequip') {
     const r = unequipItem(gameState, hero, slot || selSlot);
     if (!r.ok) addLog({ type: 'info', text: r.reason });
@@ -1407,7 +1412,7 @@ function showItemTip(anchor) {
     return;
   }
   lastTipAnchor = anchor || lastTipAnchor;
-  setTipWide(tip, !!bagItem);
+  setTipWide(tip, true);
   tip.innerHTML = inspectHtml(hero);
   tip.hidden = false;
   positionItemTip(lastTipAnchor);
@@ -1430,7 +1435,7 @@ function refreshItemTip() {
     hideItemTip();
     return;
   }
-  setTipWide(tip, !!bagItem);
+  setTipWide(tip, true);
   tip.innerHTML = inspectHtml(hero);
   const anchor = document.querySelector(selInvUid ? `[data-inv="${CSS.escape(selInvUid)}"]` : `[data-slot="${selSlot}"]`) || lastTipAnchor;
   if (anchor) lastTipAnchor = anchor;
@@ -1873,39 +1878,51 @@ function inspectHtml(hero) {
     const worn = hero.equipment[dest];
     const block = equipBlockReason(hero, bagItem);
     const ring = isRingItem(bagItem);
-    return `<div class="inspect-actions">
+    return `<div class="inspect-split">
+      <div class="inspect-main">
+        <div class="d4-cmp">
+          ${itemCardHtml(bagItem, '替换', { hero, vs: worn, side: 'new' })}
+          ${itemCardHtml(worn, '已装备', { hero, side: 'old' })}
+        </div>
+      </div>
+      <aside class="inspect-side">
+        <div class="inspect-actions">
         ${ring ? `
           <button type="button" class="btn-small ${dest === 'ring1' ? 'on' : ''}" data-act="cmpring" data-uid="ring1">比左戒</button>
           <button type="button" class="btn-small ${dest === 'ring2' ? 'on' : ''}" data-act="cmpring" data-uid="ring2">比右戒</button>
-          <button type="button" class="btn-small" data-act="equip" data-uid="${bagItem.uid}" data-slot="${dest}" ${block ? 'disabled' : ''}>装备到${SLOT_NAMES[dest]}</button>
+          <button type="button" class="btn-small btn-equip" data-act="equip" data-uid="${bagItem.uid}" data-slot="${dest}" ${block ? 'disabled' : ''}>装备到${SLOT_NAMES[dest]}</button>
         ` : (block
           ? `<button type="button" class="btn-small" disabled title="${block}">无法装备</button>`
-          : `<button type="button" class="btn-small" data-act="equip" data-uid="${bagItem.uid}" data-slot="${dest}">装备</button>`)}
+          : `<button type="button" class="btn-small btn-equip" data-act="equip" data-uid="${bagItem.uid}" data-slot="${dest}">装备</button>`)}
         <button type="button" class="btn-small" data-act="lock" data-uid="${bagItem.uid}">${bagItem.locked ? '解锁' : '锁定'}</button>
         <button type="button" class="btn-small" data-act="sell" data-uid="${bagItem.uid}">出售 ${formatCompactNum(sellValue(bagItem))}金</button>
         <button type="button" class="btn-small" data-act="salvage" data-uid="${bagItem.uid}">分解</button>
         ${stashBtnHtml(bagItem)}
-        ${rerollBtnHtml(bagItem)}
-        ${enhanceBtnHtml(bagItem)}
-      </div>
-      <div class="inspect-body">
-      <div class="d4-cmp">
-        ${itemCardHtml(bagItem, '替换', { hero, vs: worn, side: 'new' })}
-        ${itemCardHtml(worn, '已装备', { hero, side: 'old' })}
-      </div>
-      </div>`;
+        </div>
+        <div class="inspect-craft">
+          ${rerollBtnHtml(bagItem)}
+          ${enhanceBtnHtml(bagItem)}
+        </div>
+      </aside>
+    </div>`;
   }
   let html = '';
   if (worn) {
-    html += `<div class="inspect-actions">
-        <button type="button" class="btn-small" data-act="unequip" data-slot="${selSlot}">卸下</button>
-        ${rerollBtnHtml(worn)}
-        ${enhanceBtnHtml(worn)}
-      </div>
-      <div class="inspect-body">
-        <div class="cmp-row">${itemCardHtml(worn, '已装备', { hero })}</div>
+    html += `<div class="inspect-split">
+      <div class="inspect-main">
+        ${itemCardHtml(worn, '已装备', { hero })}
         ${worn.setId ? inspectSetHtml(hero, worn.setId) : ''}
-      </div>`;
+      </div>
+      <aside class="inspect-side">
+        <div class="inspect-actions">
+          <button type="button" class="btn-small" data-act="unequip" data-slot="${selSlot}">卸下</button>
+        </div>
+        <div class="inspect-craft">
+          ${rerollBtnHtml(worn)}
+          ${enhanceBtnHtml(worn)}
+        </div>
+      </aside>
+    </div>`;
   } else {
     html += '<p class="hint">空部位。点击背包格子选择装备。</p>';
   }
@@ -2356,33 +2373,61 @@ function switchActiveChar(id) {
   if (!id || gameState.activeCharId === id) return;
   if (!(gameState.unlockedChars || []).includes(id) || !gameState.heroes[id]) return;
   gameState.activeCharId = id;
-  const nh = getActiveHero(gameState);
-  nh.currentHp = calcHeroStats(nh).maxHp;
-  clampHeroResource(nh);
+  hideItemTip();
   selSlot = 'weapon';
   selInvUid = null;
+  selInvUids = new Set();
   lastCampSig = '';
-  resetFieldForZone();
-  onUpdate?.();
-  renderAll();
+  renderCharTabs();
+  const nameEl = document.getElementById('hero-name');
+  if (nameEl) nameEl.textContent = `${CHARACTERS[id]?.name || id}`;
+  requestAnimationFrame(() => {
+    if (gameState.activeCharId !== id) return;
+    const nh = getActiveHero(gameState);
+    nh.currentHp = calcHeroStats(nh).maxHp;
+    clampHeroResource(nh);
+    resetFieldForZone();
+    renderAll();
+  });
+}
+
+function charTabInner(tab, unlocked, active) {
+  const hint = unlocked ? (CHARACTERS[tab.id]?.name || tab.short) : classUnlockHint(tab.id);
+  const state = unlocked
+    ? `<span class="char-tab-state">${active ? '出战' : '挂机'}</span>`
+    : `<span class="char-tab-lock">未解锁</span><span class="char-tab-need">${hint}</span>`;
+  return `<span class="char-tab-name">${tab.short}</span>${state}`;
 }
 
 function renderCharTabs() {
   const el = document.getElementById('char-tabs');
   if (!el) return;
   const tabs = typeof CHAR_TABS !== 'undefined' ? CHAR_TABS : Object.keys(CHARACTERS).map(id => ({ id, short: CHARACTERS[id].name }));
-  el.innerHTML = tabs.map((tab) => {
+  const key = tabs.map(t => t.id).join(',') + '|' + (gameState.unlockedChars || []).join(',');
+  if (el.dataset.key !== key) {
+    el.dataset.key = key;
+    el.innerHTML = tabs.map((tab) => {
+      const unlocked = (gameState.unlockedChars || []).includes(tab.id);
+      const active = gameState.activeCharId === tab.id;
+      const hint = unlocked ? (CHARACTERS[tab.id]?.name || tab.short) : classUnlockHint(tab.id);
+      const cls = `char-tab${active ? ' on' : ''}${unlocked ? ' open' : ' locked'}`;
+      return `<button type="button" class="${cls}" data-char="${tab.id}" title="${hint}" aria-disabled="${unlocked ? 'false' : 'true'}">${charTabInner(tab, unlocked, active)}</button>`;
+    }).join('');
+    return;
+  }
+  for (const btn of el.querySelectorAll('.char-tab')) {
+    const tab = tabs.find(t => t.id === btn.dataset.char);
+    if (!tab) continue;
     const unlocked = (gameState.unlockedChars || []).includes(tab.id);
     const active = gameState.activeCharId === tab.id;
     const hint = unlocked ? (CHARACTERS[tab.id]?.name || tab.short) : classUnlockHint(tab.id);
-    const cls = `char-tab${active ? ' on' : ''}${unlocked ? ' open' : ' locked'}`;
-    const state = unlocked
-      ? `<span class="char-tab-state">${active ? '出战' : '挂机'}</span>`
-      : `<span class="char-tab-lock">未解锁</span><span class="char-tab-need">${hint}</span>`;
-    return `<button type="button" class="${cls}" data-char="${tab.id}" title="${hint}" aria-disabled="${unlocked ? 'false' : 'true'}">
-      <span class="char-tab-name">${tab.short}</span>${state}
-    </button>`;
-  }).join('');
+    btn.classList.toggle('on', active);
+    btn.classList.toggle('open', unlocked);
+    btn.classList.toggle('locked', !unlocked);
+    btn.title = hint;
+    btn.setAttribute('aria-disabled', unlocked ? 'false' : 'true');
+    btn.innerHTML = charTabInner(tab, unlocked, active);
+  }
 }
 
 function showCharacterModal() {
