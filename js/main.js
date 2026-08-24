@@ -13,6 +13,7 @@ const combat = {
   spawnTimer: 0,
   comboWindow: 0,
   lastOpener: null,
+  lastSkillId: null,
   minionTimer: 0,
   minionIdx: 0,
   lastCorpse: null,
@@ -69,6 +70,7 @@ function runSlice(dt, paint) {
   saveTimer += dt * 1000;
   hudAcc += dt;
   updateCombat(dt);
+  tickIdleHeroes(gameState, dt);
   const hero = getActiveHero(gameState);
   if (hero && window.isoField) {
     const map = getCurrentMap(hero, gameState);
@@ -236,6 +238,11 @@ function tickMonsterAI(dt, heroIso, stats) {
   for (const m of combat.monsters) {
     if (!m?.iso || m.hp <= 0) continue;
     if (m.tauntT > 0) m.tauntT -= dt;
+    if (m.fleeT > 0) {
+      m.fleeT -= dt;
+      m.flee = m.fleeT > 0;
+      if (m.fleeT <= 0) m.fleeT = 0;
+    }
     if (m.curse?.t > 0) {
       m.curse.t -= dt;
       if (m.curse.t <= 0) m.curse = null;
@@ -347,15 +354,42 @@ function tickAuraPulses(dt, hero, stats) {
     combat.auraPulse[id] = p.interval || 1;
     const pack = alivePack().filter(m => m.iso && isoDist(hx, m.iso) <= (p.radius || 2.2) + 0.2);
     if (!pack.length) continue;
-    const fake = {
-      id, name: skill.name, damageMult: p.mult || 0.25, element: p.element,
-      aoe: true, aoeRadius: p.radius, tags: ['aoe', p.element],
-    };
-    applySkillHits(hero, fake, pack[0], stats, { silent: true, origin: hx });
-    window.isoField?.vfx.push({
-      kind: 'nova', color: elementColor(p.element), life: 0.3, max: 0.3,
-      x: hx.x, y: hx.y,
-    });
+    const lv = effectiveSkillLevel(hero, id, stats);
+    if (p.taunt) applyTauntPull(hero, skill, lv, hx);
+    if (p.flee) {
+      const dur = (p.fleeDur || 2.2) + lv * 0.12;
+      let n = 0;
+      for (const m of pack) {
+        if (!m || m.hp <= 0) continue;
+        if (m.kind === 'boss' || m.kind === 'hidden' || m.isBoss) continue;
+        m.flee = true;
+        m.fleeT = dur;
+        n++;
+      }
+      if (n) {
+        window.isoField?.addFx('skill', hx.x, hx.y, skill.name, '#c8c070');
+        addLog({ type: 'skill', text: `${skill.name}：${n} 个小怪溃逃（${dur.toFixed(1)}s）` });
+      }
+    }
+    if (p.stun) {
+      const dur = (p.stunDur || 1.15) + lv * 0.04;
+      for (const m of pack) {
+        m.attackTimer = Math.max(m.attackTimer || 0, dur);
+      }
+      window.isoField?.addFx('skill', hx.x, hx.y, skill.name, '#e8d080');
+      window.isoField?.vfx.push({ kind: 'nova', color: '#e8d080', life: 0.28, max: 0.28, x: hx.x, y: hx.y });
+    }
+    if ((p.mult || 0) > 0 || p.element) {
+      const fake = {
+        id, name: skill.name, damageMult: p.mult || 0.25, element: p.element,
+        aoe: true, aoeRadius: p.radius, tags: ['aoe', p.element],
+      };
+      applySkillHits(hero, fake, pack[0], stats, { silent: true, origin: hx });
+      window.isoField?.vfx.push({
+        kind: 'nova', color: elementColor(p.element), life: 0.3, max: 0.3,
+        x: hx.x, y: hx.y,
+      });
+    }
   }
 }
 
@@ -481,6 +515,14 @@ function updateCombat(dt) {
 
   tickSkillZones(dt, hero, stats);
 
+  const interrupt = combat.target && combat.channel
+    && listReadyCasts(hero, combat.target, stats).some(r => (r.skill.cooldown || 0) > 0);
+  if (interrupt) {
+    combat.channel = null;
+    if (window.isoField) window.isoField.spinning = false;
+    combat.preferCdOnce = true;
+  }
+
   if (tickSkillChannel(dt, hero, stats)) {
     combat.attackTimer = 0.05;
     tickMonsterAI(dt, window.isoField?.hero, stats);
@@ -528,8 +570,6 @@ function updateCombat(dt) {
 
   tickMonsterAI(dt, hx, stats);
 
-  tryPulseTaunt(hero, stats, hx);
-
   combat.attackTimer -= dt;
   if (combat.attackTimer <= 0) {
     const usedSkill = tryCastOneSkill(hero, monster, stats);
@@ -560,22 +600,6 @@ function updateCombat(dt) {
   }
 
   tickMonsterAttacks(dt, hero, hx, stats);
-}
-
-function tryPulseTaunt(hero, stats, heroIso) {
-  const tree = SKILLS[hero.charId] || {};
-  for (const [id, skill] of Object.entries(tree)) {
-    if (!skill.taunt) continue;
-    if (!isSkillEnabled(hero, id)) continue;
-    const invested = hero.skillLevels?.[id] || 0;
-    if (invested < 1) continue;
-    combat.skillCooldowns[id] = combat.skillCooldowns[id] || 0;
-    if (combat.skillCooldowns[id] > 0) continue;
-    applyTauntPull(hero, skill, effectiveSkillLevel(hero, id, stats), heroIso);
-    combat.skillCooldowns[id] = Math.max((skill.cooldown || 6) * 1.15, 4.5);
-    return true;
-  }
-  return false;
 }
 
 function applyTauntPull(hero, skill, lv, heroIso) {
@@ -734,7 +758,6 @@ function autoCastSkillIds(hero, stats) {
   defaults.forEach(add);
   (hero.equippedSkills || []).forEach(add);
   Object.keys(stats.skillGrant || {}).forEach(add);
-  combatSkillQueue(hero).forEach(add);
   return ids.filter(id => {
     const skill = tree[id];
     if (!skill || skill.type !== 'active') return false;
@@ -747,47 +770,53 @@ function autoCastSkillIds(hero, stats) {
   });
 }
 
-function tryCastOneSkill(hero, monster, stats) {
-  if (!monster || monster.hp <= 0) return false;
+function listReadyCasts(hero, monster, stats) {
   const tree = SKILLS[hero.charId] || {};
-  hero.skillLevels = hero.skillLevels || {};
-  const ids = autoCastSkillIds(hero, stats);
-
-  const spenders = [];
-  const generators = [];
-  for (const skillId of ids) {
+  const hx = window.isoField?.hero;
+  const pack = alivePack();
+  const ready = [];
+  for (const skillId of autoCastSkillIds(hero, stats)) {
     const skill = tree[skillId];
     if (!skill) continue;
     combat.skillCooldowns[skillId] = combat.skillCooldowns[skillId] || 0;
     if (combat.skillCooldowns[skillId] > 0) continue;
     const cost = skillResCost(hero, skill, stats);
     if (cost > 0 && (hero.currentRes || 0) < cost) continue;
-    const row = { skillId, skill, cost };
-    if (cost > 0) spenders.push(row);
-    else generators.push(row);
+    if (!skillHasTarget(hero, skill, stats, pack, hx, monster)) continue;
+    ready.push({ skillId, skill, cost });
   }
-  spenders.sort((a, b) => {
-    let n = b.cost - a.cost;
-    if (b.skill.channel) n += 8;
-    if (a.skill.channel) n -= 8;
-    return n;
-  });
-  const rage = (stats.resId || classResource(hero.charId).id) === 'rage';
-  let pick = spenders[0] || null;
-  if (!pick && generators.length) {
-    if (rage && (hero.currentRes || 0) >= 28) {
-      pick = null;
-    } else {
-      const burst = generators.filter(g => (g.skill.cooldown || 0) > 0);
-      const filler = generators.filter(g => !(g.skill.cooldown > 0));
-      burst.sort((a, b) => {
-        const dur = (b.skill.duration || 0) - (a.skill.duration || 0);
-        if (dur) return dur;
-        return (b.skill.cooldown || 0) - (a.skill.cooldown || 0);
-      });
-      pick = (rage && generators.find(r => r.skillId === 'smash')) || burst[0] || filler[0] || generators[0];
-    }
+  return ready;
+}
+
+function pickCastSkill(hero, ready) {
+  if (!ready?.length) return null;
+  const order = [];
+  const seen = new Set();
+  const add = (id) => {
+    if (!id || seen.has(id)) return;
+    const row = ready.find(r => r.skillId === id);
+    if (!row) return;
+    seen.add(id);
+    order.push(row);
+  };
+  (hero.skillPriorities || []).forEach(add);
+  (hero.equippedSkills || []).forEach(add);
+  ready.forEach(r => add(r.skillId));
+  if (!order.length) return ready[0];
+  if (combat.preferCdOnce) {
+    combat.preferCdOnce = false;
+    const cd = order.find(r => (r.skill.cooldown || 0) > 0);
+    if (cd) return cd;
   }
+  const last = combat.lastSkillId;
+  const idx = order.findIndex(r => r.skillId === last);
+  const start = idx >= 0 ? idx + 1 : 0;
+  return order[start % order.length];
+}
+
+function tryCastOneSkill(hero, monster, stats) {
+  if (!monster || monster.hp <= 0) return false;
+  const pick = pickCastSkill(hero, listReadyCasts(hero, monster, stats));
   if (!pick) return false;
 
   const { skillId, skill, cost } = pick;
@@ -834,6 +863,11 @@ function tryCastOneSkill(hero, monster, stats) {
     }
   }
   combat.spenderLock = false;
+  combat.lastSkillId = skillId;
+  if ((skill.tags || []).includes('opener')) {
+    combat.comboWindow = Math.max(combat.comboWindow || 0, 6);
+    combat.lastOpener = skillId;
+  }
   if (cost > 0) {
     addLog({ type: 'skill', text: `${skill.name} 怒气 ${Math.floor(before)} → ${Math.floor(hero.currentRes || 0)}` });
   }

@@ -84,6 +84,7 @@ function calcHeroStats(hero, opts = {}) {
     cdrPct: 0,
     resRegenPct: 0,
     enemyResDown: 0,
+    enemyDmgDown: 0,
     vsUndead: 0,
     vsDemon: 0,
     reflectPct: 0,
@@ -271,6 +272,7 @@ function skillBonusBreakdown(hero, opts = {}) {
     const skill = SKILLS[hero.charId]?.[id];
     if (!skill?.skillBonus) continue;
     if (skill.type === 'buff' && useLive && !isBuffActive(liveBuffs, id)) continue;
+    if (skill.type === 'aura' && !isAuraOn(hero, id)) continue;
     const add = skillBonusGranted(skill, lv);
     if (add) parts.push({ id, name: skill.name, add });
   }
@@ -443,9 +445,18 @@ function skillEffectLines(hero, skill, parts, stats) {
   if (skill.auraPulse) {
     const p = skill.auraPulse;
     const el = { fire: '火焰', ice: '冰霜', lightning: '闪电' }[p.element] || p.element;
-    lines.push(`光环脉冲 ${el} · 半径 ${p.radius} · 间隔 ${p.interval}s`);
+    const bits = [];
+    if (el) bits.push(`光环脉冲 ${el}`);
+    else bits.push('光环脉冲');
+    if (p.radius) bits.push(`半径 ${p.radius}`);
+    if (p.interval) bits.push(`间隔 ${p.interval}s`);
+    if (p.taunt) bits.push('嘲讽');
+    if (p.flee) bits.push('溃逃');
+    if (p.stun) bits.push('眩晕');
+    lines.push(bits.join(' · '));
   }
   if (skill.enemyResDown) lines.push(nowPer('敌人抗性降低', skill.enemyResDown));
+  if (skill.enemyDmgDown) lines.push(nowPer('敌人伤害降低', skill.enemyDmgDown));
   if (skill.slowAura) lines.push(nowPer('敌人减速', skill.slowAura));
   if (skill.vsUndead) lines.push(nowPer('对亡灵', skill.vsUndead));
   if (skill.vsDemon) lines.push(nowPer('对恶魔', skill.vsDemon));
@@ -575,6 +586,7 @@ function applySkillStatBonuses(stats, skill, lv) {
   if (skill.lightningDmgBonus) stats.lightningDmgPct += skill.lightningDmgBonus * lv;
   if (skill.aoeBonus) stats.aoePct += skill.aoeBonus * lv;
   if (skill.enemyResDown) stats.enemyResDown += skill.enemyResDown * lv;
+  if (skill.enemyDmgDown) stats.enemyDmgDown += skill.enemyDmgDown * Math.max(lv, 1);
   if (skill.vsUndead) stats.vsUndead += skill.vsUndead * lv;
   if (skill.vsDemon) stats.vsDemon += skill.vsDemon * lv;
   if (skill.reflectPct) stats.reflectPct += skill.reflectPct * lv;
@@ -634,13 +646,12 @@ function scaledAffix(affix, mult) {
 
 function applyItemStats(stats, item) {
   const m = itemStatMult(item);
-  const am = itemAffixStatMult(item);
   const em = itemEnhanceMult(item);
   if (item.baseDamage) stats.damage += Math.round(item.baseDamage * m);
   if (item.armor) stats.armor += Math.round(item.armor * m);
   if (item.attackSpeed) stats.attackSpeed += item.attackSpeed * em;
-  for (const affix of item.affixes || []) applyAffixToStats(stats, scaledAffix(affix, am));
-  if (item.exclusiveAffix) applyAffixToStats(stats, scaledAffix(item.exclusiveAffix, am));
+  for (const affix of item.affixes || []) applyAffixToStats(stats, scaledAffix(affix, itemAffixStatMult(item, affix.stat)));
+  if (item.exclusiveAffix) applyAffixToStats(stats, scaledAffix(item.exclusiveAffix, itemAffixStatMult(item, item.exclusiveAffix.stat)));
 }
 
 function mergeSkillMap(dst, src, mode) {
@@ -794,6 +805,7 @@ function calcMonsterDamage(monster, hero) {
   dmg *= (1 - stats.damageReduction);
   dmg *= (1 - stats.allRes * 0.5);
   if (monster.curse?.dmgDown) dmg *= (1 - monster.curse.dmgDown);
+  if (stats.enemyDmgDown) dmg *= (1 - Math.min(0.7, stats.enemyDmgDown));
   return Math.max(1, Math.floor(dmg));
 }
 

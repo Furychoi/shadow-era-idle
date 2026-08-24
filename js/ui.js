@@ -68,7 +68,7 @@ let selSkillId = null;
 
 function shownAffix(item, a) {
   if (!a) return a;
-  const m = itemAffixStatMult(item);
+  const m = itemAffixStatMult(item, a.stat);
   if (m === 1) return a;
   return { ...a, value: Math.round(a.value * m * 1000) / 1000 };
 }
@@ -212,7 +212,16 @@ function renderAll() {
 function bindEvents() {
   document.getElementById('btn-offline')?.addEventListener('click', showOfflineModal);
   document.getElementById('btn-skills')?.addEventListener('click', showSkillModal);
-  document.getElementById('btn-characters')?.addEventListener('click', showCharacterModal);
+  document.getElementById('char-tabs')?.addEventListener('click', (e) => {
+    const tab = e.target.closest('.char-tab');
+    if (!tab?.dataset.char) return;
+    if (tab.classList.contains('locked')) {
+      const name = CHARACTERS[tab.dataset.char]?.name || tab.dataset.char;
+      addLog({ type: 'loot', text: `${name}未解锁：${classUnlockHint(tab.dataset.char)}` });
+      return;
+    }
+    switchActiveChar(tab.dataset.char);
+  });
   const openTownOrShop = () => {
     if (townUnlocked(gameState)) openTown();
     else showShopModal();
@@ -256,7 +265,7 @@ function bindEvents() {
   document.getElementById('btn-reset-save')?.addEventListener('click', () => {
     if (!confirm('将清除本地存档并重新开始（等级、地图、解锁、背包全部还原），确定？')) return;
     resetSave();
-    location.replace(`${location.pathname}?v=89&reset=${Date.now()}`);
+    location.replace(`${location.pathname}?r=${Date.now()}`);
   });
   const fillJunkSelect = () => {
     const sel = document.getElementById('junk-q');
@@ -521,6 +530,7 @@ function bindEvents() {
       }
       ensureRiftHero(hero);
       hero.currentMap = 'rift';
+      hero.holdMap = false;
       gameState.mapsEntered = gameState.mapsEntered || {};
       gameState.mapsEntered.rift = true;
       mapActTab = 6;
@@ -538,11 +548,13 @@ function bindEvents() {
       return;
     }
     hero.currentMap = map.id;
+    hero.holdMap = mapCampaignDone(gameState, map);
     gameState.mapsEntered = gameState.mapsEntered || {};
     gameState.mapsEntered[map.id] = true;
     mapActTab = map.act;
     mapActFollow = true;
     resetFieldForZone();
+    if (hero.holdMap) addLog({ type: 'info', text: `驻守 ${map.name}（已通关，循环刷本）` });
     renderAll();
     setMobileView('combat');
   });
@@ -881,7 +893,7 @@ function campSig() {
   const enh = SLOTS.map(s => hero.equipment[s]?.enhance || 0).join(',');
   const mats = ensureMats(gameState);
   const tr = JSON.stringify(hero.train || {});
-  return [hero.charId, hero.level, hero.skillPoints, JSON.stringify(hero.skillLevels), eq, inv, selSlot, selInvUid, [...selInvUids].sort().join('.'), invMultiMode ? 'm' : '', gameState.invFilter || 'all', JSON.stringify(normalizeInvSort(gameState.invSort)), invPage, gameState.autoSell?.enabled ? '1' : '0', gameState.autoSell?.maxQuality || '', gameState.autoSell?.action || '', autosellOpen ? 'p' : '', enh, mats.metal, mats.cloth, mats.crystal, tr, gameState.gold, gameState.bagExpands || 0, gameState.diffId || 'normal'].join('|');
+  return [hero.charId, hero.level, hero.skillPoints, JSON.stringify(hero.skillLevels), eq, inv, selSlot, selInvUid, [...selInvUids].sort().join('.'), invMultiMode ? 'm' : '', gameState.invFilter || 'all', JSON.stringify(normalizeInvSort(gameState.invSort)), invPage, gameState.autoSell?.enabled ? '1' : '0', gameState.autoSell?.maxQuality || '', gameState.autoSell?.action || '', autosellOpen ? 'p' : '', enh, mats.metal, mats.cloth, mats.crystal, tr, gameState.gold, gameState.bagExpands || 0, gameState.diffId || 'normal', (gameState.unlockedChars || []).join(',')].join('|');
 }
 
 function renderHeroPanel() {
@@ -944,6 +956,7 @@ function renderHeroPanel() {
   document.getElementById('current-map-name').textContent = `${map.name} · ${getWorldDiff(gameState).name}`;
   document.getElementById('map-level-range').textContent = `Lv.${map.levelMin}–${map.levelMax} · Act ${map.act}${pen.label ? ` · ${pen.label}` : ''}`;
   document.getElementById('inv-count').textContent = `${gameState.inventory.length}/${getInvCap(gameState)}`;
+  renderCharTabs();
   syncBagExpandBtn();
   const st = document.getElementById('hero-status');
   if (st) {
@@ -1564,10 +1577,15 @@ function itemCardHtml(item, tag, opts = {}) {
   return `<div class="cmp-col${vs ? ' cmp-new' : ''}${opts.side === 'old' ? ' cmp-old' : ''}">${body}</div>`;
 }
 
+function roundDelta(d) {
+  return Math.round(Number(d) || 0);
+}
+
 function deltaSpan(d, suffix = '') {
-  if (!d) return '';
-  if (d > 0) return `<span class="affix-delta up">▲ +${d}${suffix}</span>`;
-  return `<span class="affix-delta down">▼ ${d}${suffix}</span>`;
+  const n = roundDelta(d);
+  if (!n) return '';
+  if (n > 0) return `<span class="affix-delta up">▲ +${n}${suffix}</span>`;
+  return `<span class="affix-delta down">▼ ${n}${suffix}</span>`;
 }
 
 function affixValueDelta(item, a, vsItem) {
@@ -1619,8 +1637,8 @@ function compareStatTableHtml(oldItem, newItem, labels) {
   const rows = keys.map(k => {
     const left = a[k];
     const right = b[k];
-    const lv = left?.value || 0;
-    const rv = right?.value || 0;
+    const lv = roundDelta(left?.value || 0);
+    const rv = roundDelta(right?.value || 0);
     const d = rv - lv;
     const suf = right?.suffix || left?.suffix || '';
     const name = right?.name || left?.name || k;
@@ -1667,7 +1685,7 @@ function gearScoreHtml(item, hero, compact = false, vs = null) {
 }
 
 function scoreDelta(oldN, newN) {
-  const d = newN - oldN;
+  const d = roundDelta(newN - oldN);
   const cls = d > 0 ? 'up' : d < 0 ? 'down' : 'same';
   const sign = d > 0 ? '+' : '';
   return { d, cls, text: d === 0 ? '=' : `${sign}${d}` };
@@ -1960,7 +1978,7 @@ function combatUsableSkillIds(hero) {
     if (!skill || (skill.type !== 'active' && skill.type !== 'buff')) return false;
     if (combatSkillLevel(hero, id, stats) <= 0) return false;
     const granted = (stats.skillGrant?.[id] || 0) > 0;
-    if (equipped.length && skill.type === 'active' && !equipped.includes(id) && !granted) return false;
+    if (equipped.length && skill.type === 'active' && !equipped.includes(id) && !granted && !isCoreCombatSkill(skill)) return false;
     return true;
   });
 }
@@ -2121,8 +2139,10 @@ function renderMapSelect() {
       : maps.some(m => mapUnlocked(gameState, m)
         && !gameState.mapsEntered[m.id]
         && m.id !== hero.currentMap);
+    const allCleared = !rift && anyOpen && maps.every(m => mapCampaignDone(gameState, m));
     tab.classList.toggle('active', mapActTab === a);
     tab.classList.toggle('locked', !anyOpen);
+    tab.classList.toggle('cleared', allCleared);
     tab.classList.toggle('act-new', anyNew);
     tab.classList.toggle('here', heroAct === a);
     const dot = tab.querySelector('.act-dot');
@@ -2151,6 +2171,7 @@ function renderMapSelect() {
     const btn = container.children[0];
     const isNew = !locked && !gameState.mapsEntered.rift && hero.currentMap !== 'rift';
     btn.classList.toggle('locked', locked);
+    btn.classList.toggle('cleared', false);
     btn.classList.toggle('active', hero.currentMap === 'rift');
     btn.classList.toggle('map-new', isNew);
     btn.querySelector('.map-name').textContent = `${rmap.name}${hero.riftBest ? ` · 最高 ${hero.riftBest} 层` : ''}`;
@@ -2190,9 +2211,11 @@ function renderMapSelect() {
     const btn = container.children[i];
     const locked = !mapUnlocked(gameState, raw);
     const p = mapClearProgress(gameState, map);
-    const isNew = !locked && !gameState.mapsEntered[map.id] && map.id !== hero.currentMap;
+    const done = !locked && mapCampaignDone(gameState, raw);
+    const isNew = !locked && !done && !gameState.mapsEntered[map.id] && map.id !== hero.currentMap;
     btn.disabled = false;
     btn.classList.toggle('locked', locked);
+    btn.classList.toggle('cleared', done);
     btn.classList.toggle('active', map.id === hero.currentMap);
     btn.classList.toggle('map-new', isNew);
     btn.classList.toggle('boss', !!map.isBoss);
@@ -2201,7 +2224,7 @@ function renderMapSelect() {
     btn.querySelector('.map-prog-fill').style.width = `${locked ? 0 : p.pct}%`;
     btn.querySelector('.map-hint').textContent = locked
       ? (`未解锁 · ${mapUnlockHint(gameState, map) || '尚未开放'}`)
-      : (isNew ? '可进入' : (map.isBoss && p.ready ? '首领可挑战' : `${p.have}/${p.need}`));
+      : (done ? '已通关' : (isNew ? '可进入' : (map.isBoss && p.ready ? '首领可挑战' : `${p.have}/${p.need}`)));
     const tag = btn.querySelector('.map-new-tag');
     const dot = btn.querySelector('.map-new-dot');
     if (tag) tag.hidden = !isNew;
@@ -2228,7 +2251,7 @@ function showOfflineModal() {
     return `<div class="loot-item" style="color:${q.color}">${itemDisplayName(item)} (${q.name})</div>`;
   }).join('');
   showModal('离线收益', `
-    <p>离线 <strong>${rewards.hours}</strong> 小时 · 效率 ${rewards.eff}%${rewards.expPen ? ` · <span class="exp-pen">${rewards.expPen}</span>` : ''}</p>
+    <p>离线 <strong>${rewards.hours}</strong> 小时 · 效率 ${rewards.eff}%（全职业合计）${rewards.expPen ? ` · <span class="exp-pen">${rewards.expPen}</span>` : ''}</p>
     <div class="reward-grid">
       <div class="reward-item">经验 <strong>+${rewards.exp.toLocaleString()}</strong></div>
       <div class="reward-item">金币 <strong>+${rewards.gold.toLocaleString()}</strong></div>
@@ -2240,7 +2263,7 @@ function showOfflineModal() {
   `);
   document.getElementById('claim-offline')?.addEventListener('click', () => {
     claimOfflineRewards(gameState, rewards);
-    addLog({ type: 'loot', text: `领取离线：经验 +${rewards.exp} 金币 +${rewards.gold}` });
+    addLog({ type: 'loot', text: `领取离线：全职业经验 +${rewards.exp} 金币 +${rewards.gold}` });
     closeModal();
     renderAll();
   });
@@ -2283,7 +2306,7 @@ function showSkillModal(keepId) {
     <p class="hint">学习技能同时消耗技能点与金币/材料。高等级技能与高阶解锁更贵。</p>
     <p class="hint">标签共鸣：${tagStr || '无'}（4/6/8 层激活）</p>
     <p class="hint">弓弩技能需装备弓/弩，标枪技能需装备标枪。额外等级（如战斗命令）显示为 1+3。</p>
-    <p class="hint">圣骑士进攻/防守光环各只能启用一道，点「切换」更换。主动 / 光环 / 增益可开关。终结技在资源足够时优先释放。</p>
+    <p class="hint">狂战士战吼为常驻光环，可同时启用、无需释放。圣骑士进攻/防守光环各只能启用一道，点「切换」更换。主动 / 光环 / 增益可开关。终结技在资源足够时优先释放。</p>
     <div class="skill-modal-layout">
       <div class="skill-modal-trees">${treesHtml}</div>
       <aside class="skill-inspect" id="skill-inspect">${selSkillId ? skillInspectHtml(selSkillId) : '<p class="hint">悬停或点击左侧技能查看说明，可连续点 + 加点。</p>'}</aside>
@@ -2329,8 +2352,40 @@ function itemLine(item, opts = {}) {
   return { q, affixHtml, morphStr, setStr };
 }
 
+function switchActiveChar(id) {
+  if (!id || gameState.activeCharId === id) return;
+  if (!(gameState.unlockedChars || []).includes(id) || !gameState.heroes[id]) return;
+  gameState.activeCharId = id;
+  const nh = getActiveHero(gameState);
+  nh.currentHp = calcHeroStats(nh).maxHp;
+  clampHeroResource(nh);
+  selSlot = 'weapon';
+  selInvUid = null;
+  lastCampSig = '';
+  resetFieldForZone();
+  onUpdate?.();
+  renderAll();
+}
+
+function renderCharTabs() {
+  const el = document.getElementById('char-tabs');
+  if (!el) return;
+  const tabs = typeof CHAR_TABS !== 'undefined' ? CHAR_TABS : Object.keys(CHARACTERS).map(id => ({ id, short: CHARACTERS[id].name }));
+  el.innerHTML = tabs.map((tab) => {
+    const unlocked = (gameState.unlockedChars || []).includes(tab.id);
+    const active = gameState.activeCharId === tab.id;
+    const hint = unlocked ? (CHARACTERS[tab.id]?.name || tab.short) : classUnlockHint(tab.id);
+    const cls = `char-tab${active ? ' on' : ''}${unlocked ? ' open' : ' locked'}`;
+    const state = unlocked
+      ? `<span class="char-tab-state">${active ? '出战' : '挂机'}</span>`
+      : `<span class="char-tab-lock">未解锁</span><span class="char-tab-need">${hint}</span>`;
+    return `<button type="button" class="${cls}" data-char="${tab.id}" title="${hint}" aria-disabled="${unlocked ? 'false' : 'true'}">
+      <span class="char-tab-name">${tab.short}</span>${state}
+    </button>`;
+  }).join('');
+}
+
 function showCharacterModal() {
-  const progress = getUnlockProgress(gameState);
   const hero = getActiveHero(gameState);
   let html = `<div class="stats-detail">
     <div>${CHARACTERS[hero.charId].name} Lv.${hero.level} · 总评分 ${formatCompactNum(heroGearScore(hero))} · DPS ${calcDPS(hero).toLocaleString()} · EHP ${calcEHP(hero).toLocaleString()}</div>
@@ -2340,17 +2395,15 @@ function showCharacterModal() {
     const unlocked = gameState.unlockedChars.includes(id);
     const active = gameState.activeCharId === id;
     const h = gameState.heroes[id];
-    let unlockText = '初始';
-    if (char.unlock?.boss) {
-      const b = BOSSES[char.unlock.boss];
-      unlockText = progress[char.unlock.boss] ? '已解锁' : `击败 ${b.name}`;
-    }
+    const map = h ? getMap(h.currentMap) : null;
+    const mapName = h?.currentMap === 'rift' ? '小秘境' : (map?.name || '');
+    const unlockText = classUnlockHint(id);
     html += `<div class="char-card ${unlocked ? '' : 'locked'} ${active ? 'active' : ''}">
       <div class="char-icon">${char.icon}</div>
       <div class="char-info">
         <div class="char-name">${char.name}</div>
         <div class="char-desc">${char.desc}</div>
-        ${unlocked ? `<div class="char-lv">Lv.${h?.level || 1} · ${formatCompactNum(heroGearScore(h))}</div>` : `<div class="char-unlock">${unlockText}</div>`}
+        ${unlocked ? `<div class="char-lv">Lv.${h?.level || 1} · ${formatCompactNum(heroGearScore(h))} · ${active ? '出战' : '挂机中'}${mapName ? ` · ${mapName}` : ''}</div>` : `<div class="char-unlock">${unlockText}</div>`}
       </div>
       ${unlocked && !active ? `<button class="btn-small btn-switch" data-char="${id}">出战</button>` : ''}
     </div>`;
@@ -2359,16 +2412,8 @@ function showCharacterModal() {
   showModal('切换角色', html);
   document.querySelectorAll('.btn-switch').forEach(btn => {
     btn.addEventListener('click', () => {
-      gameState.activeCharId = btn.dataset.char;
-      const nh = getActiveHero(gameState);
-      nh.currentHp = calcHeroStats(nh).maxHp;
-      clampHeroResource(nh);
-      selSlot = 'weapon';
-      selInvUid = null;
-      lastCampSig = '';
+      switchActiveChar(btn.dataset.char);
       closeModal();
-      onUpdate?.();
-        renderAll();
     });
   });
 }

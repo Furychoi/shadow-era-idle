@@ -22,16 +22,108 @@ function usesNamedAffixBands(itemOrQ) {
   return q === 'unique' || q === 'ancientUnique' || q === 'set' || q === 'ancientSet' || q === 'ancient';
 }
 
+function defaultHeroEcon(starter = false) {
+  return {
+    gold: starter ? 800 : 0,
+    inventory: [],
+    bagExpands: 0,
+    mats: { metal: 0, cloth: 0, crystal: 0 },
+    hpPotions: starter ? 8 : 0,
+    manaPotions: starter ? 6 : 0,
+    potionTier: 1,
+    hpPotionTier: 1,
+    manaPotionTier: 1,
+    potionAuto: { buyHp: true, buyMana: true, useHp: true, useMana: true, keepHp: 20, keepMana: 16 },
+  };
+}
+
+function ensureHeroEconomy(hero, starter = false) {
+  if (!hero) return hero;
+  const d = defaultHeroEcon(starter);
+  if (hero.gold == null) hero.gold = d.gold;
+  if (!Array.isArray(hero.inventory)) hero.inventory = [];
+  if (hero.bagExpands == null) hero.bagExpands = 0;
+  if (!hero.mats) hero.mats = { metal: 0, cloth: 0, crystal: 0 };
+  if (hero.mats.metal == null) hero.mats.metal = 0;
+  if (hero.mats.cloth == null) hero.mats.cloth = 0;
+  if (hero.mats.crystal == null) hero.mats.crystal = 0;
+  if (hero.hpPotions == null) hero.hpPotions = d.hpPotions;
+  if (hero.manaPotions == null) hero.manaPotions = d.manaPotions;
+  if (!hero.potionTier) hero.potionTier = 1;
+  if (hero.hpPotionTier == null) hero.hpPotionTier = hero.potionTier || 1;
+  if (hero.manaPotionTier == null) hero.manaPotionTier = hero.potionTier || 1;
+  const a = hero.potionAuto || {};
+  hero.potionAuto = {
+    buyHp: a.buyHp !== false,
+    buyMana: a.buyMana !== false,
+    useHp: a.useHp !== false,
+    useMana: a.useMana !== false,
+    keepHp: a.keepHp || 20,
+    keepMana: a.keepMana || 16,
+  };
+  return hero;
+}
+
+const HERO_ECON_KEYS = ['gold', 'inventory', 'bagExpands', 'mats', 'hpPotions', 'manaPotions', 'potionTier', 'hpPotionTier', 'manaPotionTier', 'potionAuto'];
+const ECON_BOUND = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
+
+function bindHeroEconomy(state) {
+  if (!state) return state;
+  for (const k of HERO_ECON_KEYS) {
+    const desc = Object.getOwnPropertyDescriptor(state, k);
+    if (desc && desc.configurable !== false) {
+      try { delete state[k]; } catch (_) { /* keep */ }
+    }
+  }
+  for (const k of HERO_ECON_KEYS) {
+    Object.defineProperty(state, k, {
+      configurable: true,
+      enumerable: false,
+      get() {
+        const h = getActiveHero(this);
+        return h ? h[k] : undefined;
+      },
+      set(v) {
+        const h = getActiveHero(this);
+        if (h) h[k] = v;
+      },
+    });
+  }
+  if (ECON_BOUND) ECON_BOUND.add(state);
+  return state;
+}
+
+function migrateHeroEconomy(state) {
+  const goldDesc = Object.getOwnPropertyDescriptor(state, 'gold');
+  const shared = !!(goldDesc && Object.prototype.hasOwnProperty.call(goldDesc, 'value'));
+  const active = getActiveHero(state);
+  for (const h of Object.values(state.heroes || {})) {
+    if (shared && h === active) {
+      if (typeof state.potions === 'number' && state.hpPotions == null) state.hpPotions = state.potions;
+      if (state.gold != null) h.gold = state.gold;
+      if (Array.isArray(state.inventory)) h.inventory = state.inventory;
+      if (state.bagExpands != null) h.bagExpands = state.bagExpands;
+      if (state.mats) h.mats = state.mats;
+      if (state.hpPotions != null) h.hpPotions = state.hpPotions;
+      if (state.manaPotions != null) h.manaPotions = state.manaPotions;
+      if (state.potionTier != null) h.potionTier = state.potionTier;
+      if (state.hpPotionTier != null) h.hpPotionTier = state.hpPotionTier;
+      if (state.manaPotionTier != null) h.manaPotionTier = state.manaPotionTier;
+      if (state.potionAuto) h.potionAuto = state.potionAuto;
+    }
+    ensureHeroEconomy(h, false);
+  }
+  bindHeroEconomy(state);
+  return state;
+}
+
 function createNewGame() {
   const state = {
-    gold: 800,
-    unlockedChars: ['berserker', 'amazon'],
+    unlockedChars: ['berserker'],
     activeCharId: 'berserker',
     heroes: {
       berserker: createHero('berserker'),
-      amazon: createHero('amazon'),
     },
-    inventory: [],
     bossesKilled: {},
     lastSaveTime: Date.now(),
     offlineClaimed: false,
@@ -45,14 +137,6 @@ function createNewGame() {
     junkQuality: 'magic',
     invFilter: 'all',
     invSort: { rarity: true, ilvl: true, score: true },
-    bagExpands: 0,
-    hpPotions: 8,
-    manaPotions: 6,
-    potionTier: 1,
-    hpPotionTier: 1,
-    manaPotionTier: 1,
-    potionAuto: { buyHp: true, buyMana: true, useHp: true, useMana: true, keepHp: 20, keepMana: 16 },
-    mats: { metal: 0, cloth: 0, crystal: 0 },
     shards: 0,
     mapKills: {},
     mapsEntered: { wasteland: true },
@@ -64,6 +148,7 @@ function createNewGame() {
     town: createTownState(),
   };
   ensureDiffProgress(state);
+  bindHeroEconomy(state);
   return state;
 }
 
@@ -96,6 +181,7 @@ function createHero(charId, level = 1, equipment = {}) {
     if (equipment[slot]) hero.equipment[slot] = equipment[slot];
   }
   if (!hero.equipment.weapon) hero.equipment.weapon = createStarterWeapon(charId);
+  ensureHeroEconomy(hero, true);
   hero.currentHp = calcHeroStats(hero).maxHp;
   clampHeroResource(hero);
   return hero;
@@ -122,18 +208,46 @@ function ensureDefaultSkills(hero) {
   }
 }
 
+function grantedSkillIds(hero) {
+  const ids = new Set();
+  if (typeof getSetStatus !== 'function') return ids;
+  for (const s of getSetStatus(hero.equipment || {})) {
+    for (const [n, bonus] of Object.entries(s.def.bonuses || {})) {
+      if (s.count >= parseInt(n, 10) && bonus.skillGrant) {
+        Object.keys(bonus.skillGrant).forEach(id => ids.add(id));
+      }
+    }
+  }
+  return ids;
+}
+
 function ensureEquippedSkillLevels(hero) {
   if (!hero) return;
   hero.skillLevels = hero.skillLevels || {};
   hero.skillEnabled = hero.skillEnabled || {};
   ensureDefaultSkills(hero);
+  const tree = SKILLS[hero.charId] || {};
   const defaults = DEFAULT_SKILLS[hero.charId] || [];
-  const extra = (hero.equippedSkills || []).filter(id => !defaults.includes(id));
-  hero.equippedSkills = [...defaults, ...extra];
+  const grants = grantedSkillIds(hero);
+  const known = (id) => (hero.skillLevels[id] || 0) >= 1 || grants.has(id);
+  const barOk = (id) => {
+    const sk = tree[id];
+    return sk && sk.type === 'active' && sk.tree !== 'warcry' && known(id);
+  };
+  const extra = (hero.equippedSkills || []).filter(id => !defaults.includes(id) && barOk(id));
+  const auto = Object.keys(tree).filter(id => barOk(id) && typeof isCoreCombatSkill === 'function' && isCoreCombatSkill(tree[id]));
+  const merged = [];
+  const seen = new Set();
+  for (const id of [...defaults.filter(known), ...auto, ...extra]) {
+    if (seen.has(id) || !tree[id]) continue;
+    seen.add(id);
+    merged.push(id);
+  }
+  hero.equippedSkills = merged;
   if (!hero.skillPriorities?.length) hero.skillPriorities = [...hero.equippedSkills];
   else {
-    const rest = hero.skillPriorities.filter(id => !defaults.includes(id));
-    hero.skillPriorities = [...defaults, ...rest];
+    const rest = hero.skillPriorities.filter(id => !defaults.includes(id) && known(id));
+    hero.skillPriorities = [...defaults.filter(known), ...rest];
   }
   ensureAuraPicks(hero);
 }
@@ -272,14 +386,9 @@ function loadGame() {
     if (!state.junkQuality || state.junkQuality === 'ancient' || state.junkQuality === 'ancientSet' || state.junkQuality === 'ancientUnique') {
       state.junkQuality = 'magic';
     }
-    if (state.bagExpands == null) state.bagExpands = 0;
+    if (state.bagExpands == null && !state.heroes?.[state.activeCharId]?.inventory) state.bagExpands = 0;
     state.invSort = normalizeInvSort(state.invSort);
     if (state.invFilter === 'set' || state.invFilter === 'rare') state.invFilter = 'all';
-    ensureMats(state);
-    if ((state.shards || 0) > 0) {
-      state.mats.metal += state.shards;
-      state.shards = 0;
-    }
     if (!state.mapKills) state.mapKills = {};
     if (!state.bossesKilled) state.bossesKilled = {};
     if (state.autoNextMap == null) state.autoNextMap = true;
@@ -326,13 +435,20 @@ function loadGame() {
       ensureEquippedSkillLevels(h);
       clampHeroResource(h);
     }
-    for (const it of state.inventory || []) ensureItemAffixes(it, 1);
+    migrateHeroEconomy(state);
+    if ((state.shards || 0) > 0) {
+      const mats = ensureMats(state);
+      mats.metal += state.shards;
+      state.shards = 0;
+    }
     ensurePotionState(state);
     ensureTown(state);
     if (isMapCleared(state, TOWN_UNLOCK_MAP)) state.town.unlocked = true;
-    if (!state.heroes.amazon && (state.unlockedChars || []).includes('amazon')) {
-      state.heroes.amazon = createHero('amazon');
+    tryUnlockClasses(state);
+    for (const h of Object.values(state.heroes || {})) {
+      for (const it of h.inventory || []) ensureItemAffixes(it, h.level || 1);
     }
+    for (const it of state.town.warehouse || []) ensureItemAffixes(it, 1);
     return state;
   } catch {
     return createNewGame();
@@ -418,6 +534,8 @@ function restoreHeroMaps(state) {
       const m = getMap(want);
       h.currentMap = (m && mapUnlocked(state, m)) ? want : 'wasteland';
     }
+    const cur = getMap(h.currentMap);
+    if (!cur || cur.isRift || !mapCampaignDone(state, cur)) h.holdMap = false;
   }
 }
 
@@ -565,6 +683,7 @@ function getCurrentMap(hero, state) {
 
 function tryAutoNextMap(state, hero) {
   if (!state || state.autoNextMap === false || !hero) return null;
+  if (hero.holdMap) return null;
   if (hero.currentMap === 'rift') return null;
   const map = getMap(hero.currentMap);
   if (!map || map.isRift) return null;
@@ -582,6 +701,108 @@ function tryAutoNextMap(state, hero) {
     return n;
   }
   return null;
+}
+
+function idleKillInterval(hero, map) {
+  const avgLevel = ((map?.levelMin || 1) + (map?.levelMax || 1)) / 2;
+  const dps = Math.max(1, calcDPS(hero));
+  return Math.max(0.35, (28 + avgLevel * 22) / dps);
+}
+
+function applyOneIdleKill(state, hero, map) {
+  const avg = ((map.levelMin || 1) + (map.levelMax || 1)) / 2;
+  grantKillExp(hero, Math.floor(18 + avg * 11), avg);
+  levelUpHero(hero);
+  hero.gold = (hero.gold || 0) + Math.floor(5 + avg * 3);
+  hero.kills = (hero.kills || 0) + 1;
+  if (Math.random() < 0.018) {
+    addLoot(state, generateLoot(avg, null, 'normal', hero.charId, state), hero);
+  }
+  if (hero.currentMap === 'rift' || map.isRift) {
+    ensureRiftHero(hero);
+    if (!hero.riftBossReady) {
+      hero.riftProgress = (hero.riftProgress || 0) + 1;
+      const need = riftProgressNeed(hero.riftFloor);
+      if (hero.riftProgress >= need) {
+        hero.riftProgress = need;
+        hero.riftBossReady = true;
+      }
+    }
+    return;
+  }
+  state.mapKills = state.mapKills || {};
+  const need = mapProgressNeed(map);
+  const have = state.mapKills[hero.currentMap] || 0;
+  if (have < need) state.mapKills[hero.currentMap] = have + 1;
+  maybeUnlockTown(state);
+  tryAutoNextMap(state, hero);
+}
+
+function applyIdleHero(state, hero, dt, opts = {}) {
+  if (!state || !hero || dt <= 0) return;
+  if (!opts.includeActive && hero.charId === state.activeCharId) return;
+  if (hero.isDead) {
+    hero.respawnTimer = (hero.respawnTimer || 0) - dt;
+    if (hero.respawnTimer <= 0) {
+      hero.isDead = false;
+      hero.currentHp = calcHeroStats(hero).maxHp;
+      clampHeroResource(hero);
+    }
+    return;
+  }
+  ensureHeroEconomy(hero, false);
+  let guard = 0;
+  const maxKills = 200000;
+  hero._idleAcc = (hero._idleAcc || 0) + dt;
+  while (guard++ < maxKills) {
+    const map = getCurrentMap(hero, state);
+    if (!map) return;
+    if (map.isBoss && map.bossId && !state.bossesKilled?.[map.bossId] && isChapterBossReady(state, map)) return;
+    if ((hero.currentMap === 'rift' || map.isRift) && hero.riftBossReady) return;
+    const interval = idleKillInterval(hero, map);
+    if (hero._idleAcc < interval) return;
+    hero._idleAcc -= interval;
+    const mapId = hero.currentMap;
+    applyOneIdleKill(state, hero, map);
+    if (hero.currentMap !== mapId) continue;
+  }
+}
+
+function tickIdleHeroes(state, dt, opts) {
+  for (const h of Object.values(state.heroes || {})) applyIdleHero(state, h, dt, opts);
+}
+
+function actOrdinalName(n) {
+  return ['', '一', '二', '三', '四', '五'][n] || String(n);
+}
+
+function classUnlockHint(charId) {
+  const u = (typeof CLASS_UNLOCKS !== 'undefined' ? CLASS_UNLOCKS : []).find(x => x.charId === charId);
+  if (!u) return '初始职业';
+  const d = WORLD_DIFFS.find(x => x.id === u.diffId);
+  const boss = typeof BOSSES !== 'undefined' ? BOSSES[u.bossId] : null;
+  const bossName = boss?.name || '章节首领';
+  return `${d?.name || ''}难度 · 击败${bossName}（第${actOrdinalName(u.act)}章）`;
+}
+
+function isClassUnlockDone(state, u) {
+  return !!(state.diffProgress?.[u.diffId]?.bossesKilled?.[u.bossId]);
+}
+
+function tryUnlockClasses(state) {
+  const unlocked = [];
+  if (!state) return unlocked;
+  ensureDiffProgress(state);
+  state.unlockedChars = state.unlockedChars || [];
+  state.heroes = state.heroes || {};
+  for (const u of CLASS_UNLOCKS || []) {
+    if (state.unlockedChars.includes(u.charId)) continue;
+    if (!isClassUnlockDone(state, u)) continue;
+    state.unlockedChars.push(u.charId);
+    if (!state.heroes[u.charId]) state.heroes[u.charId] = createHero(u.charId);
+    unlocked.push(u.charId);
+  }
+  return unlocked;
 }
 
 function mapClearProgress(state, map) {
@@ -648,6 +869,13 @@ function mapUnlocked(state, map) {
 function isMapCleared(state, mapId) {
   const map = MAPS.find(m => m.id === mapId);
   return !!map && mapClearProgress(state, map).ready;
+}
+
+function mapCampaignDone(state, map) {
+  if (!map || map.isRift || map.id === 'rift') return false;
+  if (!mapUnlocked(state, map)) return false;
+  if (map.isBoss && map.bossId) return !!state.bossesKilled?.[map.bossId];
+  return mapClearProgress(state, map).ready;
 }
 
 function ensureTown(state) {
@@ -1375,23 +1603,24 @@ function normalizeInvSort(sort) {
   return { rarity: true, ilvl: true, score: true };
 }
 
-function addLoot(state, item) {
-  const hero = getActiveHero(state);
+function addLoot(state, item, hero) {
+  hero = hero || getActiveHero(state);
+  ensureHeroEconomy(hero, false);
   if (shouldAutoSell(state, item, hero)) {
     if (state.autoSell.action === 'salvage') {
-      const r = salvageItem(state, item);
+      const r = salvageItem(state, item, hero);
       return { sold: true, salvage: true, gold: r.gold, metal: r.metal, cloth: r.cloth, crystal: r.crystal, item };
     }
     const gold = sellValue(item);
-    state.gold += gold;
+    hero.gold = (hero.gold || 0) + gold;
     return { sold: true, gold, item };
   }
-  if (state.inventory.length >= getInvCap(state)) {
+  if ((hero.inventory || []).length >= getInvCap(state, hero)) {
     const gold = sellValue(item);
-    state.gold += gold;
+    hero.gold = (hero.gold || 0) + gold;
     return { sold: true, overflow: true, gold, item };
   }
-  state.inventory.push(item);
+  hero.inventory.push(item);
   return { sold: false, item };
 }
 
@@ -1469,8 +1698,10 @@ function allocateSkillPoint(hero, skillId, state) {
     }
   }
   if (!hero.equippedSkills) hero.equippedSkills = [];
-  if (!hero.equippedSkills.includes(skillId) && skill.type === 'active' && (skill.damageMult || 0) >= 1) {
-    if (hero.equippedSkills.length < 6) hero.equippedSkills.push(skillId);
+  const combatBar = skill.type === 'active' && skill.tree !== 'warcry'
+    && (typeof isCoreCombatSkill === 'function' ? isCoreCombatSkill(skill) : (skill.damageMult || 0) >= 1);
+  if (!hero.equippedSkills.includes(skillId) && combatBar && hero.equippedSkills.length < 8) {
+    hero.equippedSkills.push(skillId);
   }
   return { ok: true, cost };
 }
@@ -1512,10 +1743,11 @@ function salvagePreview(item) {
   return { gold, metal, cloth, crystal, shards: metal };
 }
 
-function salvageItem(state, item) {
+function salvageItem(state, item, hero) {
   const r = salvagePreview(item);
-  gainMats(state, r);
-  state.gold += r.gold;
+  gainMats(state, r, hero);
+  const h = hero || getActiveHero(state);
+  h.gold = (h.gold || 0) + r.gold;
   return r;
 }
 
@@ -1600,16 +1832,14 @@ function formatSalvageLog(prefix, r) {
   return `${prefix} +${formatCompactNum(r.gold || 0)}金${mats ? ' +' + mats : ''}`;
 }
 
-function ensureMats(state) {
-  if (!state.mats) state.mats = { metal: 0, cloth: 0, crystal: 0 };
-  if (state.mats.metal == null) state.mats.metal = 0;
-  if (state.mats.cloth == null) state.mats.cloth = 0;
-  if (state.mats.crystal == null) state.mats.crystal = 0;
-  return state.mats;
+function ensureMats(state, hero) {
+  const h = hero || getActiveHero(state);
+  ensureHeroEconomy(h, false);
+  return h.mats;
 }
 
-function gainMats(state, p) {
-  const m = ensureMats(state);
+function gainMats(state, p, hero) {
+  const m = ensureMats(state, hero);
   m.metal += p.metal || 0;
   m.cloth += p.cloth || 0;
   m.crystal += p.crystal || 0;
@@ -2128,35 +2358,72 @@ function calcOfflineRewards(state) {
   const elapsed = Date.now() - (state.lastSaveTime || Date.now());
   const hours = Math.min(elapsed / 3600000, OFFLINE_MAX_HOURS);
   if (hours < 0.01) return null;
-  const hero = getActiveHero(state);
-  const map = getCurrentMap(hero, state);
-  const avgLevel = (map.levelMin + map.levelMax) / 2;
-  const dps = calcDPS(hero);
-  const killTime = (28 + avgLevel * 22) / Math.max(dps, 1);
   const eff = offlineEfficiency(hours);
-  const kills = Math.floor((hours * 3600 * eff) / Math.max(killTime, 0.4));
-  const msExp = Math.floor(18 + avgLevel * 11);
-  const info = expLevelInfo(hero.level, avgLevel);
-  const msGold = Math.floor(5 + avgLevel * 3);
-  const rewards = {
+  const dt = hours * 3600 * eff;
+  const clone = JSON.parse(JSON.stringify({
+    heroes: state.heroes,
+    activeCharId: state.activeCharId,
+    unlockedChars: state.unlockedChars,
+    mapKills: state.mapKills,
+    bossesKilled: state.bossesKilled,
+    mapsEntered: state.mapsEntered,
+    autoNextMap: state.autoNextMap,
+    autoSell: state.autoSell,
+    diffId: state.diffId,
+    diffProgress: state.diffProgress,
+    town: { unlocked: !!state.town?.unlocked, warehouse: [], warehouseCap: 8, hallLevel: state.town?.hallLevel || 1 },
+  }));
+  for (const h of Object.values(clone.heroes || {})) ensureHeroEconomy(h, false);
+  bindHeroEconomy(clone);
+  const beforeInv = {};
+  for (const [id, h] of Object.entries(clone.heroes || {})) {
+    beforeInv[id] = new Set((h.inventory || []).map(i => i.uid));
+  }
+  tickIdleHeroes(clone, dt, { includeActive: true });
+  let gold = 0;
+  let exp = 0;
+  let kills = 0;
+  const items = [];
+  for (const [id, h] of Object.entries(clone.heroes || {})) {
+    const orig = state.heroes[id];
+    if (!orig) continue;
+    gold += Math.max(0, (h.gold || 0) - (orig.gold || 0));
+    exp += heroExpDelta(orig, h);
+    kills += Math.max(0, (h.kills || 0) - (orig.kills || 0));
+    for (const it of h.inventory || []) {
+      if (!beforeInv[id]?.has(it.uid)) items.push(it);
+    }
+  }
+  return {
     hours: Math.floor(hours * 10) / 10,
-    exp: Math.floor(kills * msExp * info.mult),
-    gold: Math.floor(kills * msGold),
-    items: [],
-    kills, eff: Math.round(eff * 100),
-    expPen: info.label || '',
+    exp,
+    gold,
+    items: items.slice(0, 24),
+    kills,
+    eff: Math.round(eff * 100),
+    expPen: '',
+    dt,
   };
-  const itemCount = Math.min(18, Math.floor(kills * 0.018));
-  for (let i = 0; i < itemCount; i++) rewards.items.push(generateLoot(avgLevel, null, 'normal', hero.charId, state));
-  return rewards;
+}
+
+function heroExpDelta(from, to) {
+  let exp = 0;
+  let lv = from.level || 1;
+  let cur = from.exp || 0;
+  const endLv = to.level || 1;
+  const endExp = to.exp || 0;
+  while (lv < endLv && lv < 99) {
+    exp += Math.max(0, expForLevel(lv) - cur);
+    cur = 0;
+    lv += 1;
+  }
+  if (lv === endLv) exp += Math.max(0, endExp - cur);
+  return Math.max(0, exp);
 }
 
 function claimOfflineRewards(state, rewards) {
-  const hero = getActiveHero(state);
-  hero.exp += rewards.exp;
-  state.gold += rewards.gold;
-  levelUpHero(hero);
-  for (const item of rewards.items) addLoot(state, item);
+  const dt = rewards?.dt || 0;
+  if (dt > 0) tickIdleHeroes(state, dt, { includeActive: true });
   state.offlineClaimed = true;
   state.lastSaveTime = Date.now();
 }
@@ -2178,34 +2445,19 @@ function onBossKill(state, bossId) {
     return { loot, repeat: true, unlockedDiff };
   }
   if (map?.act) grantActClears(state, map.act);
-  const reward = boss.firstKillReward || {};
-  const unlocked = [];
-  if (firstEver) {
-    for (const id of reward.unlockChars || []) {
-      if (!state.unlockedChars.includes(id)) {
-        state.unlockedChars.push(id);
-        state.heroes[id] = createHero(id);
-        unlocked.push(id);
-      }
-    }
-  }
+  const unlocked = tryUnlockClasses(state);
   const nextAct = (map?.act || 0) + 1;
   const nextMaps = MAPS.filter(m => m.act === nextAct);
   return { unlockChars: unlocked, loot, act: map?.act, nextAct: nextMaps.length ? nextAct : null, unlockedDiff };
 }
 
 function getUnlockProgress(state) {
-  const killed = state.bossesEver || state.bossesKilled || {};
-  return {
-    visna: killed.visna,
-    duriel: killed.duriel,
-    council: killed.council,
-    diablo: killed.diablo,
-  };
+  return { classes: CLASS_UNLOCKS.map(u => ({ ...u, done: isClassUnlockDone(state, u) })) };
 }
 
-function getInvCap(state) {
-  return INV_CAP + (state.bagExpands || 0) * BAG_EXPAND_SLOTS;
+function getInvCap(state, hero) {
+  const h = hero || getActiveHero(state);
+  return INV_CAP + (h?.bagExpands || 0) * BAG_EXPAND_SLOTS;
 }
 
 function bagExpandsLeft(state) {

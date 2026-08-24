@@ -80,7 +80,8 @@ function itemAffixQualityMult(item) {
   return 1;
 }
 
-function itemAffixStatMult(item) {
+function itemAffixStatMult(item, stat) {
+  if (stat === 'critRate') return itemEnhanceMult(item);
   return itemStatMult(item) * itemAffixQualityMult(item);
 }
 
@@ -134,6 +135,25 @@ const MORPHS = {
   window: { id: 'window', name: '窗口延长', desc: '连招窗口 +1.5 秒' },
 };
 
+const CLASS_UNLOCKS = [
+  { charId: 'sorceress', diffId: 'normal', act: 1, bossId: 'visna' },
+  { charId: 'paladin', diffId: 'normal', act: 3, bossId: 'council' },
+  { charId: 'necro', diffId: 'normal', act: 5, bossId: 'baal' },
+  { charId: 'amazon', diffId: 'hard', act: 1, bossId: 'visna' },
+  { charId: 'assassin', diffId: 'hard', act: 3, bossId: 'council' },
+  { charId: 'druid', diffId: 'hard', act: 5, bossId: 'baal' },
+];
+
+const CHAR_TABS = [
+  { id: 'berserker', short: '狂战士' },
+  { id: 'sorceress', short: '元素师' },
+  { id: 'paladin', short: '圣骑士' },
+  { id: 'necro', short: '死灵' },
+  { id: 'amazon', short: '亚马逊' },
+  { id: 'assassin', short: '刺客' },
+  { id: 'druid', short: '德鲁伊' },
+];
+
 const CHARACTERS = {
   berserker: {
     id: 'berserker', name: '狂战士', mainStat: 'str', icon: '斧',
@@ -146,7 +166,7 @@ const CHARACTERS = {
   amazon: {
     id: 'amazon', name: '亚马逊', mainStat: 'agi', icon: '弓',
     desc: '弓弩/标枪远程，穿透层与女武神',
-    unlock: null, palette: ['#2a4a6a', '#c8a050', '#f0d8a0'],
+    unlock: { type: 'act', diffId: 'hard', act: 1 }, palette: ['#2a4a6a', '#c8a050', '#f0d8a0'],
     baseHp: 95, baseDamage: 14, baseArmor: 5, attackInterval: 0.95, attackRange: 4.4,
     resource: { id: 'mana', name: '魔法', color: '#4a8cee', maxBase: 25, maxPerLevel: 5, fromInt: 1.6, regen: 4.2, startFull: true },
     weaponClasses: ['bow', 'javelin'],
@@ -154,7 +174,7 @@ const CHARACTERS = {
   sorceress: {
     id: 'sorceress', name: '元素师', mainStat: 'int', icon: '法',
     desc: '火冰电三系爆发，玻璃大炮',
-    unlock: { type: 'boss', boss: 'visna' }, palette: ['#3a2a6a', '#8860d0', '#d0c8f0'],
+    unlock: { type: 'act', diffId: 'normal', act: 1 }, palette: ['#3a2a6a', '#8860d0', '#d0c8f0'],
     baseHp: 72, baseDamage: 13, baseArmor: 3, attackInterval: 1.0, attackRange: 4.8,
     resource: { id: 'mana', name: '魔法', color: '#7a8cff', maxBase: 35, maxPerLevel: 8, fromInt: 2.2, regen: 5.5, startFull: true },
     weaponClasses: ['caster'],
@@ -162,7 +182,7 @@ const CHARACTERS = {
   druid: {
     id: 'druid', name: '德鲁伊', mainStat: 'int', icon: '德',
     desc: '风暴元素、狼熊变形、召唤灵兽',
-    unlock: { type: 'boss', boss: 'duriel' }, palette: ['#2a4a2a', '#6a8a40', '#c8d090'],
+    unlock: { type: 'act', diffId: 'hard', act: 5 }, palette: ['#2a4a2a', '#6a8a40', '#c8d090'],
     baseHp: 100, baseDamage: 13, baseArmor: 6, attackInterval: 1.1, attackRange: 3.4,
     resource: { id: 'mana', name: '魔法', color: '#4aaa88', maxBase: 30, maxPerLevel: 6, fromInt: 1.8, regen: 4.6, startFull: true },
     weaponClasses: ['caster'],
@@ -170,7 +190,7 @@ const CHARACTERS = {
   assassin: {
     id: 'assassin', name: '暗影刺客', mainStat: 'agi', icon: '刺',
     desc: '陷阱铺场、武学聚气、影子分身',
-    unlock: { type: 'boss', boss: 'duriel' }, palette: ['#1a1a2a', '#4a3a6a', '#c0a0d0'],
+    unlock: { type: 'act', diffId: 'hard', act: 3 }, palette: ['#1a1a2a', '#4a3a6a', '#c0a0d0'],
     baseHp: 88, baseDamage: 15, baseArmor: 5, attackInterval: 0.9, attackRange: 1.5,
     resource: { id: 'energy', name: '能量', color: '#d4a040', maxBase: 100, regen: 18, startFull: true },
     weaponClasses: ['claw'],
@@ -178,7 +198,7 @@ const CHARACTERS = {
   paladin: {
     id: 'paladin', name: '圣骑士', mainStat: 'str', icon: '圣',
     desc: '攻防双光环切换、热诚/圣锤/天堂之拳分流',
-    unlock: { type: 'boss', boss: 'council' }, palette: ['#3a3a1a', '#d4b050', '#f0e8c8'],
+    unlock: { type: 'act', diffId: 'normal', act: 3 }, palette: ['#3a3a1a', '#d4b050', '#f0e8c8'],
     baseHp: 115, baseDamage: 14, baseArmor: 10, attackInterval: 1.05, attackRange: 1.45,
     resource: { id: 'mana', name: '魔法', color: '#e8d070', maxBase: 22, maxPerLevel: 4, fromInt: 1.2, regen: 3.8, startFull: true },
     weaponClasses: ['melee'],
@@ -186,7 +206,7 @@ const CHARACTERS = {
   necro: {
     id: 'necro', name: '死灵法师', mainStat: 'int', icon: '灵',
     desc: '尸潮、毒素、诅咒降抗',
-    unlock: { type: 'boss', boss: 'diablo' }, palette: ['#2a1a2a', '#6a4a6a', '#b09090'],
+    unlock: { type: 'act', diffId: 'normal', act: 5 }, palette: ['#2a1a2a', '#6a4a6a', '#b09090'],
     baseHp: 80, baseDamage: 12, baseArmor: 4, attackInterval: 1.05, attackRange: 4.2,
     resource: { id: 'mana', name: '魔法', color: '#a070c0', maxBase: 32, maxPerLevel: 7, fromInt: 2.0, regen: 4.8, startFull: true },
     weaponClasses: ['caster'],
@@ -204,11 +224,11 @@ const SKILLS = {
     stun: S('stun', '击晕', 'combat', 'active', { tags: ['melee', 'control', 'window'], desc: '高硬直打击，开启旋风窗口', damageMult: 1.4, cooldown: 6, resCost: 12, prereq: 'leap', synergy: [{ skill: 'smash', pct: 8 }] }),
     whirlwind: S('whirlwind', '旋风斩', 'combat', 'active', { tags: ['melee', 'aoe', 'phys', 'finisher'], desc: '持续旋转，对周围敌人反复造成范围伤害', damageMult: 0.5, cooldown: 0, aoe: true, aoeRadius: 2.45, channel: 2.3, channelTick: 0.32, resCost: 28, prereq: 'leap', synergy: [{ skill: 'leap', pct: 7 }, { skill: 'weaponMastery', pct: 5 }] }),
     frenzy: S('frenzy', '狂乱', 'combat', 'active', { tags: ['melee', 'aoe', 'phys'], desc: '连续挥砍周围敌人并叠攻速', damageMult: 1.35, cooldown: 3.2, aoe: true, aoeRadius: 2.15, hits: 2, resCost: 16, prereq: 'whirlwind', synergy: [{ skill: 'whirlwind', pct: 6 }] }),
-    howl: S('howl', '嚎叫', 'warcry', 'active', { tags: ['control', 'opener'], desc: '小怪短暂溃逃，降低其伤害', damageMult: 0.3, cooldown: 8, resCost: 18, synergy: [{ skill: 'taunt', pct: 5 }] }),
-    taunt: S('taunt', '嘲讽', 'warcry', 'aura', { tags: ['aura', 'control', 'aoe', 'nova'], desc: '持续减伤；周期性怒吼，强制周围敌人近身进攻', damageReduction: 0.04, taunt: true, tauntDuration: 5.5, cooldown: 6, aoe: true, aoeRadius: 7 }),
-    battleOrders: S('battleOrders', '战斗体制', 'warcry', 'buff', { tags: ['buff'], desc: '最大生命提升', hpBonus: 0.06, cooldown: 8, buffDuration: 24, prereq: 'taunt' }),
-    battleCommand: S('battleCommand', '战斗命令', 'warcry', 'buff', { tags: ['buff'], desc: '全技能等级 +1/级，每 5 级再额外 +1', skillBonus: 1, cooldown: 10, buffDuration: 24, prereq: 'battleOrders' }),
-    warCry: S('warCry', '战吼', 'warcry', 'active', { tags: ['aoe', 'control', 'nova'], desc: '怒吼眩晕周围敌人', damageMult: 0.95, cooldown: 7, aoe: true, aoeRadius: 4.2, resCost: 20, prereq: 'battleCommand', synergy: [{ skill: 'howl', pct: 6 }] }),
+    howl: S('howl', '嚎叫', 'warcry', 'aura', { tags: ['aura', 'control'], desc: '光环：周围小怪周期溃逃，并降低其伤害', enemyDmgDown: 0.05, auraPulse: { interval: 7, radius: 5.5, flee: true, fleeDur: 2.2 }, synergy: [{ skill: 'taunt', pct: 5 }] }),
+    taunt: S('taunt', '嘲讽', 'warcry', 'aura', { tags: ['aura', 'control', 'aoe', 'nova'], desc: '光环：持续减伤；周期怒吼强制周围敌人近身进攻', damageReduction: 0.04, taunt: true, tauntDuration: 5.5, aoe: true, aoeRadius: 7, auraPulse: { interval: 6, radius: 7, taunt: true } }),
+    battleOrders: S('battleOrders', '战斗体制', 'warcry', 'aura', { tags: ['aura', 'buff'], desc: '光环：最大生命提升', hpBonus: 0.06, prereq: 'taunt' }),
+    battleCommand: S('battleCommand', '战斗命令', 'warcry', 'aura', { tags: ['aura', 'buff'], desc: '光环：全技能等级 +1/级，每 5 级再额外 +1', skillBonus: 1, prereq: 'battleOrders' }),
+    warCry: S('warCry', '战吼', 'warcry', 'aura', { tags: ['aura', 'control', 'aoe', 'nova'], desc: '光环：周期怒吼眩晕周围敌人', aoe: true, aoeRadius: 4.2, prereq: 'battleCommand', synergy: [{ skill: 'howl', pct: 6 }], auraPulse: { interval: 7, radius: 4.2, stun: true, stunDur: 1.2 } }),
     weaponMastery: S('weaponMastery', '武器精通', 'mastery', 'passive', { tags: ['phys', 'melee'], desc: '近战伤害', damageBonus: 0.08 }),
     tenacity: S('tenacity', '钢铁之肤', 'mastery', 'passive', { tags: ['melee'], desc: '护甲与生命', armorBonus: 0.1, hpBonus: 0.04, prereq: 'weaponMastery' }),
     bloodthirst: S('bloodthirst', '嗜血', 'mastery', 'passive', { tags: ['melee'], desc: '吸血', lifesteal: 0.018, prereq: 'tenacity' }),
@@ -484,7 +504,7 @@ const BOSSES = {
       { threshold: 0.6, desc: '召唤毒蛛，释放毒雾' },
       { threshold: 0.3, desc: '狂暴：攻速与毒伤提升' },
     ],
-    firstKillReward: { unlockChars: ['sorceress'], legendary: true },
+    firstKillReward: { unlockChars: [], legendary: true },
   },
   duriel: {
     id: 'duriel', name: '沙虫王·杜瑞尔', level: 34, hp: 26000, damage: 78, armor: 30,
@@ -494,7 +514,7 @@ const BOSSES = {
       { threshold: 1.0, desc: '冲锋砸击' },
       { threshold: 0.5, desc: '地震与减速光环' },
     ],
-    firstKillReward: { unlockChars: ['druid', 'assassin'], legendary: true },
+    firstKillReward: { unlockChars: [], legendary: true },
   },
   council: {
     id: 'council', name: '议会三魔', level: 48, hp: 42000, damage: 98, armor: 36,
@@ -504,7 +524,7 @@ const BOSSES = {
       { threshold: 1.0, desc: '三魔轮转攻击' },
       { threshold: 0.4, desc: '合体狂暴' },
     ],
-    firstKillReward: { unlockChars: ['paladin'], legendary: true },
+    firstKillReward: { unlockChars: [], legendary: true },
   },
   diablo: {
     id: 'diablo', name: '迪亚波罗', level: 62, hp: 78000, damage: 132, armor: 44,
@@ -515,7 +535,7 @@ const BOSSES = {
       { threshold: 0.5, desc: '红闪冲锋' },
       { threshold: 0.2, desc: '炼狱全屏' },
     ],
-    firstKillReward: { unlockChars: ['necro'], legendary: true },
+    firstKillReward: { unlockChars: [], legendary: true },
   },
   baal: {
     id: 'baal', name: '巴尔', level: 84, hp: 72000, damage: 155, armor: 52,
@@ -605,7 +625,7 @@ const AFFIX_POOL = {
     { id: 'fireDmg', name: '火系伤害', stat: 'fireDmgPct', min: 5, max: 22, suffix: '%', kind: 'atk' },
     { id: 'iceDmg', name: '冰系伤害', stat: 'iceDmgPct', min: 5, max: 22, suffix: '%', kind: 'atk' },
     { id: 'lightDmg', name: '电系伤害', stat: 'lightningDmgPct', min: 5, max: 22, suffix: '%', kind: 'atk' },
-    { id: 'critRate', name: '暴击率', stat: 'critRate', min: 3, max: 12, suffix: '%', kind: 'atk' },
+    { id: 'critRate', name: '暴击率', stat: 'critRate', min: 3, max: 15, suffix: '%', kind: 'atk' },
     { id: 'atkSpd', name: '攻击速度', stat: 'attackSpeed', min: 5, max: 16, suffix: '%', kind: 'atk' },
     { id: 'range', name: '攻击距离', stat: 'attackRange', min: 8, max: 24, suffix: '%', kind: 'atk' },
     { id: 'critDmg', name: '暴击伤害', stat: 'critDmg', min: 12, max: 45, suffix: '%', kind: 'atk' },
@@ -900,11 +920,11 @@ function heroTrainBonuses(hero) {
 }
 
 const DEFAULT_SKILLS = {
-  berserker: ['smash', 'leap', 'taunt'],
+  berserker: ['smash'],
   amazon: ['magicArrow'],
-  sorceress: ['fireball', 'frostNova'],
-  druid: ['raven', 'spiritWolf'],
-  assassin: ['fireBlast', 'tigerStrike'],
-  paladin: ['zeal', 'might'],
-  necro: ['raiseSkeleton', 'teeth'],
+  sorceress: ['fireBolt'],
+  druid: ['raven'],
+  assassin: ['tigerStrike'],
+  paladin: ['zeal'],
+  necro: ['teeth'],
 };
