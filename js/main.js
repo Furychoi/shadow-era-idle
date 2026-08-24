@@ -71,7 +71,7 @@ function runSlice(dt, paint) {
   updateCombat(dt);
   const hero = getActiveHero(gameState);
   if (hero && window.isoField) {
-    const map = getCurrentMap(hero);
+    const map = getCurrentMap(hero, gameState);
     const pack = alivePack();
     window.isoField.setScene({
       tiles: map?.tiles || 'dirt',
@@ -175,7 +175,7 @@ function spawnPack(map) {
   if (map?.isRift && hero) {
     ensureRiftHero(hero);
     if (hero.riftBossReady) {
-      const g = createRiftGuardian(map);
+      const g = createRiftGuardian(map, { worldMult: worldMonsterMult(gameState) });
       combat.monsters = [g];
       combat.target = g;
       combat.attackTimer = 0.4;
@@ -187,7 +187,7 @@ function spawnPack(map) {
   const pity = combat.bossPity || 0;
   const chance = chapterBossAppearChance(gameState, map, pity);
   if (chance > 0 && Math.random() < chance) {
-    const m = createMonster(map, { forceBoss: true, bossId: map.bossId });
+    const m = createMonster(map, { forceBoss: true, bossId: map.bossId, worldMult: worldMonsterMult(gameState) });
     combat.monsters = [m];
     combat.bossPity = 0;
     const pct = Math.round(chance * 100);
@@ -206,13 +206,13 @@ function spawnPack(map) {
   const clearFactor = mapClearFactor(gameState, map);
   combat.monsters = [];
   for (let i = 0; i < n; i++) {
-    const m = createMonster(map, { clearFactor });
+    const m = createMonster(map, { clearFactor, worldMult: worldMonsterMult(gameState) });
     m.iso.x += (i % 4) * 0.52;
     m.iso.y += Math.floor(i / 4) * 0.48;
     combat.monsters.push(m);
   }
   if (Math.random() < goblinSpawnChance(clearFactor)) {
-    const gob = createTreasureGoblin(map);
+    const gob = createTreasureGoblin(map, { worldMult: worldMonsterMult(gameState) });
     combat.monsters.push(gob);
     addLog({ type: 'boss', text: '宝藏哥布林出现了！正在逃跑…' });
   }
@@ -420,7 +420,7 @@ function updateCombat(dt) {
   }
   hero.isDead = !!hero.isDead;
 
-  const map = getCurrentMap(hero);
+  const map = getCurrentMap(hero, gameState);
   tickBuffs(dt, hero);
   const stats = calcHeroStats(hero, { useCombatBuffs: true, buffs: combat.buffs });
   clampHeroResource(hero, stats);
@@ -720,8 +720,9 @@ function skillHasTarget(hero, skill, stats, pack, hx, monster) {
   return inR(monster);
 }
 
-function autoCastSkillIds(hero) {
+function autoCastSkillIds(hero, stats) {
   const tree = SKILLS[hero.charId] || {};
+  stats = stats || calcHeroStats(hero, { useCombatBuffs: true, buffs: combat.buffs });
   const defaults = DEFAULT_SKILLS[hero.charId] || [];
   const ids = [];
   const seen = new Set();
@@ -732,11 +733,12 @@ function autoCastSkillIds(hero) {
   };
   defaults.forEach(add);
   (hero.equippedSkills || []).forEach(add);
+  Object.keys(stats.skillGrant || {}).forEach(add);
   combatSkillQueue(hero).forEach(add);
   return ids.filter(id => {
     const skill = tree[id];
     if (!skill || skill.type !== 'active') return false;
-    if ((hero.skillLevels?.[id] || 0) < 1) return false;
+    if (combatSkillLevel(hero, id, stats) < 1) return false;
     if (!isSkillEnabled(hero, id)) return false;
     if (skill.tree === 'warcry') return false;
     if (!skillWeaponReady(hero, skill).ok) return false;
@@ -749,7 +751,7 @@ function tryCastOneSkill(hero, monster, stats) {
   if (!monster || monster.hp <= 0) return false;
   const tree = SKILLS[hero.charId] || {};
   hero.skillLevels = hero.skillLevels || {};
-  const ids = autoCastSkillIds(hero);
+  const ids = autoCastSkillIds(hero, stats);
 
   const spenders = [];
   const generators = [];
@@ -758,7 +760,7 @@ function tryCastOneSkill(hero, monster, stats) {
     if (!skill) continue;
     combat.skillCooldowns[skillId] = combat.skillCooldowns[skillId] || 0;
     if (combat.skillCooldowns[skillId] > 0) continue;
-    const cost = Math.max(0, Math.floor(skill.resCost || 0));
+    const cost = skillResCost(hero, skill, stats);
     if (cost > 0 && (hero.currentRes || 0) < cost) continue;
     const row = { skillId, skill, cost };
     if (cost > 0) spenders.push(row);
@@ -1009,7 +1011,7 @@ function spawnDrops(hero, monster, extraItems) {
     piles.forEach((amt, i) => spawnGoldDrop(mx, my, amt, i, piles.length));
     const nItems = monster.lootRolls || 5;
     const items = extraItems ? extraItems.slice() : [];
-    while (items.length < nItems) items.push(generateLoot(monster.level, null, 'goblin', hero.charId));
+    while (items.length < nItems) items.push(generateLoot(monster.level, null, 'goblin', hero.charId, gameState));
     items.forEach((item, i) => {
       const q = QUALITY[item.quality] || QUALITY.normal;
       const ang = (i / items.length) * Math.PI * 2;
@@ -1017,14 +1019,14 @@ function spawnDrops(hero, monster, extraItems) {
         ix: mx + Math.cos(ang) * (0.7 + (i % 3) * 0.28),
         iy: my + Math.sin(ang) * (0.55 + (i % 3) * 0.22),
         color: q.color,
-        name: item.name,
+        name: itemDisplayName(item),
         item,
         rest: 1.35 + i * 0.12,
         onPickup: (d) => {
           const res = addLoot(gameState, d.item);
-          if (res.salvage) addLog({ type: 'loot', text: formatSalvageLog(`拾取并分解 ${d.item.name}`, res) });
-          else if (res.sold) addLog({ type: 'loot', text: `拾取并出售 ${d.item.name} +${res.gold} 金` });
-          else addLog({ type: 'loot', text: `拾取 ${d.item.name}（${q.name}）` });
+          if (res.salvage) addLog({ type: 'loot', text: formatSalvageLog(`拾取并分解 ${itemDisplayName(d.item)}`, res) });
+          else if (res.sold) addLog({ type: 'loot', text: `拾取并出售 ${itemDisplayName(d.item)} +${res.gold} 金` });
+          else addLog({ type: 'loot', text: `拾取 ${itemDisplayName(d.item)}（${q.name}）` });
         },
       });
     });
@@ -1040,7 +1042,7 @@ function spawnDrops(hero, monster, extraItems) {
   else if (monster.isBoss || monster.kind === 'actBoss' || monster.kind === 'riftBoss') rolls = 2;
   else if (Math.random() < 0.1) rolls = 1;
   if (!items.length) {
-    for (let i = 0; i < rolls; i++) items.push(generateLoot(monster.level, null, monster.kind, hero.charId));
+    for (let i = 0; i < rolls; i++) items.push(generateLoot(monster.level, null, monster.kind, hero.charId, gameState));
   }
   for (const item of items) {
     const q = QUALITY[item.quality] || QUALITY.normal;
@@ -1048,13 +1050,13 @@ function spawnDrops(hero, monster, extraItems) {
       ix: mx + (Math.random() - 0.5) * 1.1,
       iy: my + (Math.random() - 0.5) * 1.1,
       color: q.color,
-      name: item.name,
+      name: itemDisplayName(item),
       item,
       onPickup: (d) => {
         const res = addLoot(gameState, d.item);
-        if (res.salvage) addLog({ type: 'loot', text: formatSalvageLog(`拾取并分解 ${d.item.name}`, res) });
-        else if (res.sold) addLog({ type: 'loot', text: `拾取并出售 ${d.item.name} +${res.gold} 金` });
-        else addLog({ type: 'loot', text: `拾取 ${d.item.name}（${q.name}）` });
+        if (res.salvage) addLog({ type: 'loot', text: formatSalvageLog(`拾取并分解 ${itemDisplayName(d.item)}`, res) });
+        else if (res.sold) addLog({ type: 'loot', text: `拾取并出售 ${itemDisplayName(d.item)} +${res.gold} 金` });
+        else addLog({ type: 'loot', text: `拾取 ${itemDisplayName(d.item)}（${q.name}）` });
       },
     });
   }
@@ -1087,7 +1089,7 @@ function onMonsterKill(hero, monster) {
   }
 
   if (!monster.isBoss) {
-    const map = getCurrentMap(hero);
+    const map = getCurrentMap(hero, gameState);
     if (map?.isRift) {
       ensureRiftHero(hero);
       if (!hero.riftBossReady) {
@@ -1130,10 +1132,25 @@ function onMonsterKill(hero, monster) {
       if (reward.act) bits.push(`第 ${reward.act} 章已通关`);
       if (reward.nextAct) bits.push(`解锁第 ${reward.nextAct} 章`);
       if (reward.unlockChars?.length) bits.push(`解锁职业 ${reward.unlockChars.map(id => CHARACTERS[id]?.name || id).join('、')}`);
+      if (reward.unlockedDiff) bits.push(`解锁${reward.unlockedDiff.name}难度`);
       if (bits.length) addLog({ type: 'boss', text: bits.join(' · ') });
       showBossReward(reward);
+    } else if (reward?.unlockedDiff) {
+      addLog({ type: 'boss', text: `解锁${reward.unlockedDiff.name}难度` });
     }
     combat.killCount = gameState.mapKills[hero.currentMap] || 0;
+  }
+
+  const jumped = tryAutoNextMap(gameState, hero);
+  if (jumped) {
+    addLog({ type: 'info', text: `自动进入 ${jumped.name}` });
+    combat.monsters = [];
+    combat.target = null;
+    combat.bossPity = 0;
+    combat.spawnTimer = 0.25;
+    combat.killCount = gameState.mapKills[hero.currentMap] || 0;
+    combat.lastCorpse = { x: monster.iso?.x || 7, y: monster.iso?.y || 4 };
+    return;
   }
 
   combat.monsters = alivePack().filter(m => m !== monster);
@@ -1157,7 +1174,7 @@ function handleDeath(hero) {
   const loss = Math.floor((gameState.gold || 0) * 0.1);
   gameState.gold = Math.max(0, (gameState.gold || 0) - loss);
   const fightingBoss = (combat.monsters || []).some(m => m && m.isBoss && m.bossId);
-  const map = getCurrentMap(hero);
+  const map = getCurrentMap(hero, gameState);
   if (fightingBoss && map) {
     const dec = 10;
     gameState.mapKills = gameState.mapKills || {};
@@ -1173,9 +1190,9 @@ function handleDeath(hero) {
 }
 
 gameState.offlineClaimed = false;
-window.addEventListener('beforeunload', () => saveGame(gameState));
-window.addEventListener('pagehide', () => saveGame(gameState));
-window.addEventListener('freeze', () => saveGame(gameState));
+window.addEventListener('beforeunload', () => { if (!savePaused) saveGame(gameState); });
+window.addEventListener('pagehide', () => { if (!savePaused) saveGame(gameState); });
+window.addEventListener('freeze', () => { if (!savePaused) saveGame(gameState); });
 window.addEventListener('resize', () => window.isoField?.resize());
 document.addEventListener('visibilitychange', syncCombatClock);
 fgRaf = requestAnimationFrame(foregroundLoop);

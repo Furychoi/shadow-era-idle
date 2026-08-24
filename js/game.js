@@ -1,23 +1,35 @@
 const SAVE_KEY = 'shadow-era-save-v11';
 const OFFLINE_MAX_HOURS = 12;
 const KILLS_FOR_BOSS = 180;
-const INV_CAP = 64;
+const INV_CAP = 24;
+const BAG_EXPAND_SLOTS = 8;
+const BAG_EXPAND_MAX = 24;
 
-const Q_RANK = { normal: 0, magic: 1, rare: 2, set: 3, unique: 4, legendary: 5, ancient: 6, ancientSet: 6 };
+const Q_RANK = { normal: 0, magic: 1, rare: 2, set: 3, unique: 4, legendary: 5, ancient: 6, ancientSet: 6, ancientUnique: 6 };
 
 function isAncientItem(itemOrQ) {
   const q = itemOrQ && typeof itemOrQ === 'object' ? itemOrQ.quality : itemOrQ;
-  return q === 'ancient' || q === 'ancientSet';
+  return q === 'ancient' || q === 'ancientSet' || q === 'ancientUnique';
+}
+
+function isUniqueItem(itemOrQ) {
+  const q = itemOrQ && typeof itemOrQ === 'object' ? itemOrQ.quality : itemOrQ;
+  return q === 'unique' || q === 'ancientUnique';
+}
+
+function usesNamedAffixBands(itemOrQ) {
+  const q = itemOrQ && typeof itemOrQ === 'object' ? itemOrQ.quality : itemOrQ;
+  return q === 'unique' || q === 'ancientUnique' || q === 'set' || q === 'ancientSet' || q === 'ancient';
 }
 
 function createNewGame() {
-  return {
+  const state = {
     gold: 800,
     unlockedChars: ['berserker', 'amazon'],
     activeCharId: 'berserker',
     heroes: {
-      berserker: createHero('berserker', 1, { weapon: createNamedItem('butcher_cleaver') }),
-      amazon: createHero('amazon', 1, { weapon: createNamedItem('glory_bow') }),
+      berserker: createHero('berserker'),
+      amazon: createHero('amazon'),
     },
     inventory: [],
     bossesKilled: {},
@@ -37,13 +49,22 @@ function createNewGame() {
     hpPotions: 8,
     manaPotions: 6,
     potionTier: 1,
+    hpPotionTier: 1,
+    manaPotionTier: 1,
     potionAuto: { buyHp: true, buyMana: true, useHp: true, useMana: true, keepHp: 20, keepMana: 16 },
     mats: { metal: 0, cloth: 0, crystal: 0 },
     shards: 0,
     mapKills: {},
     mapsEntered: { wasteland: true },
+    autoNextMap: true,
+    diffId: 'normal',
+    diffCleared: {},
+    bossesEver: {},
+    diffProgressV1: true,
     town: createTownState(),
   };
+  ensureDiffProgress(state);
+  return state;
 }
 
 function createTownState() {
@@ -56,10 +77,11 @@ function createTownState() {
 }
 
 function createHero(charId, level = 1, equipment = {}) {
+  const lv = 1;
   const hero = {
-    charId, level, exp: 0,
-    skillPoints: Math.max(0, level + 2),
-    skillLevels: seedSkills(charId, level),
+    charId, level: lv, exp: 0,
+    skillPoints: 2,
+    skillLevels: seedSkills(charId, lv),
     equippedSkills: [...(DEFAULT_SKILLS[charId] || [])],
     skillPriorities: [...(DEFAULT_SKILLS[charId] || [])],
     skillEnabled: {},
@@ -73,6 +95,7 @@ function createHero(charId, level = 1, equipment = {}) {
   for (const slot of SLOTS) {
     if (equipment[slot]) hero.equipment[slot] = equipment[slot];
   }
+  if (!hero.equipment.weapon) hero.equipment.weapon = createStarterWeapon(charId);
   hero.currentHp = calcHeroStats(hero).maxHp;
   clampHeroResource(hero);
   return hero;
@@ -183,6 +206,31 @@ function canLearnSkill(hero, skillId, state) {
   return { ok: true, cost };
 }
 
+function createStarterWeapon(charId) {
+  const classes = CHARACTERS[charId]?.weaponClasses || ['melee'];
+  const pool = BASE_ITEMS.weapon || [];
+  const classed = pool.filter(b => b.reqClass === charId);
+  const generic = pool.filter(b => !b.reqClass && classes.includes(b.weaponClass));
+  const pick = (list) => list.slice().sort((a, b) => (a.baseDamage || 0) - (b.baseDamage || 0))[0];
+  const base = pick(classed) || pick(generic) || pool.find(b => classes.includes(b.weaponClass)) || pool[0];
+  const item = {
+    uid: uid(),
+    name: base.name,
+    slot: 'weapon',
+    quality: 'normal',
+    locked: false,
+    affixes: [],
+    itemLevel: 1,
+    reqLevel: 1,
+  };
+  if (base.baseDamage) item.listedDamage = base.baseDamage;
+  if (base.weaponClass) item.weaponClass = base.weaponClass;
+  if (base.icon) item.icon = base.icon;
+  if (base.reqClass) item.reqClass = base.reqClass;
+  refreshItemBases(item);
+  return item;
+}
+
 function createNamedItem(id) {
   const def = [...UNIQUE_ITEMS, ...LEGENDARY_ITEMS].find(i => i.id === id);
   if (!def) return null;
@@ -221,7 +269,7 @@ function loadGame() {
     if (state.autoSell.maxQuality === 'legendary' || state.autoSell.maxQuality === 'set') {
       state.autoSell.maxQuality = 'magic';
     }
-    if (!state.junkQuality || state.junkQuality === 'ancient' || state.junkQuality === 'ancientSet') {
+    if (!state.junkQuality || state.junkQuality === 'ancient' || state.junkQuality === 'ancientSet' || state.junkQuality === 'ancientUnique') {
       state.junkQuality = 'magic';
     }
     if (state.bagExpands == null) state.bagExpands = 0;
@@ -234,6 +282,10 @@ function loadGame() {
     }
     if (!state.mapKills) state.mapKills = {};
     if (!state.bossesKilled) state.bossesKilled = {};
+    if (state.autoNextMap == null) state.autoNextMap = true;
+    ensureDiffProgress(state);
+    ensureWorldDiff(state);
+    ensureDiffProgress(state);
     if (!state.mapsEntered) {
       state.mapsEntered = {};
       for (const h of Object.values(state.heroes || {})) {
@@ -279,7 +331,7 @@ function loadGame() {
     ensureTown(state);
     if (isMapCleared(state, TOWN_UNLOCK_MAP)) state.town.unlocked = true;
     if (!state.heroes.amazon && (state.unlockedChars || []).includes('amazon')) {
-      state.heroes.amazon = createHero('amazon', 1);
+      state.heroes.amazon = createHero('amazon');
     }
     return state;
   } catch {
@@ -332,6 +384,145 @@ function getActiveHero(state) {
   return state.heroes[state.activeCharId] || state.heroes.berserker || Object.values(state.heroes || {})[0];
 }
 
+function emptyDiffProgress() {
+  return { mapKills: {}, bossesKilled: {}, mapsEntered: { wasteland: true }, lastMaps: {} };
+}
+
+function cloneDiffProgress(p) {
+  return {
+    mapKills: { ...(p?.mapKills || {}) },
+    bossesKilled: { ...(p?.bossesKilled || {}) },
+    mapsEntered: { ...(p?.mapsEntered || { wasteland: true }) },
+    lastMaps: { ...(p?.lastMaps || {}) },
+  };
+}
+
+function snapshotHeroMaps(state) {
+  const id = getDiffById(state.diffId).id;
+  const p = state.diffProgress[id] || (state.diffProgress[id] = emptyDiffProgress());
+  p.lastMaps = p.lastMaps || {};
+  for (const h of Object.values(state.heroes || {})) {
+    if (h?.charId) p.lastMaps[h.charId] = h.currentMap || 'wasteland';
+  }
+}
+
+function restoreHeroMaps(state) {
+  const id = getDiffById(state.diffId).id;
+  const p = state.diffProgress[id] || emptyDiffProgress();
+  const last = p.lastMaps || {};
+  for (const h of Object.values(state.heroes || {})) {
+    const want = last[h.charId] || 'wasteland';
+    if (want === 'rift') {
+      h.currentMap = riftUnlocked(state) ? 'rift' : 'wasteland';
+    } else {
+      const m = getMap(want);
+      h.currentMap = (m && mapUnlocked(state, m)) ? want : 'wasteland';
+    }
+  }
+}
+
+function ensureDiffProgress(state) {
+  if (!state) return state;
+  state.diffProgress = state.diffProgress || {};
+  state.bossesEver = state.bossesEver || {};
+  state.diffCleared = state.diffCleared || {};
+  if (!state.diffProgressV1) {
+    state.diffProgressV1 = true;
+    const snap = cloneDiffProgress({
+      mapKills: state.mapKills,
+      bossesKilled: state.bossesKilled,
+      mapsEntered: state.mapsEntered,
+      lastMaps: {},
+    });
+    for (const h of Object.values(state.heroes || {})) {
+      if (h?.charId) snap.lastMaps[h.charId] = h.currentMap || 'wasteland';
+    }
+    const cur = getDiffById(state.diffId).id;
+    state.diffProgress[cur] = cloneDiffProgress(snap);
+    if (cur !== 'normal') state.diffProgress.normal = cloneDiffProgress(snap);
+    for (const [bid, v] of Object.entries(snap.bossesKilled || {})) {
+      if (v) state.bossesEver[bid] = true;
+    }
+  }
+  for (const [did, p] of Object.entries(state.diffProgress)) {
+    if (p?.bossesKilled?.baal) state.diffCleared[did] = true;
+  }
+  if (state.bossesEver.baal) state.diffCleared.normal = true;
+  const id = getDiffById(state.diffId).id;
+  if (!state.diffProgress[id]) state.diffProgress[id] = emptyDiffProgress();
+  const p = state.diffProgress[id];
+  p.mapKills = p.mapKills || {};
+  p.bossesKilled = p.bossesKilled || {};
+  p.mapsEntered = p.mapsEntered || { wasteland: true };
+  if (!p.mapsEntered.wasteland) p.mapsEntered.wasteland = true;
+  p.lastMaps = p.lastMaps || {};
+  state.mapKills = p.mapKills;
+  state.bossesKilled = p.bossesKilled;
+  state.mapsEntered = p.mapsEntered;
+  return state;
+}
+
+function ensureWorldDiff(state) {
+  if (!state) return null;
+  const d = getDiffById(state.diffId);
+  state.diffId = d.id;
+  state.diffCleared = state.diffCleared || {};
+  if (state.bossesEver?.baal) state.diffCleared.normal = true;
+  if (!diffUnlocked(state, state.diffId)) state.diffId = 'normal';
+  return getDiffById(state.diffId);
+}
+
+function getWorldDiff(state) {
+  return ensureWorldDiff(state) || WORLD_DIFFS[0];
+}
+
+function worldMonsterMult(state) {
+  return getWorldDiff(state).monsterMult || 1;
+}
+
+function diffUnlocked(state, id) {
+  const d = getDiffById(id);
+  if (!d || d.tier <= 0) return true;
+  const prev = WORLD_DIFFS.find(x => x.tier === d.tier - 1);
+  return !!(prev && state?.diffCleared?.[prev.id]);
+}
+
+function nextWorldDiff(id) {
+  const cur = getDiffById(id);
+  return WORLD_DIFFS.find(d => d.tier === cur.tier + 1) || null;
+}
+
+function markDiffCleared(state, id) {
+  ensureWorldDiff(state);
+  const d = getDiffById(id);
+  const already = !!state.diffCleared[d.id];
+  state.diffCleared[d.id] = true;
+  if (already) return null;
+  return nextWorldDiff(d.id);
+}
+
+function setWorldDiff(state, id) {
+  ensureDiffProgress(state);
+  ensureWorldDiff(state);
+  const d = getDiffById(id);
+  if (!diffUnlocked(state, d.id)) {
+    const prev = WORLD_DIFFS.find(x => x.tier === d.tier - 1);
+    return { ok: false, reason: `击败${prev?.name || '上一'}难度的巴尔后解锁${d.name}` };
+  }
+  if (state.diffId === d.id) return { ok: true, same: true, diff: d };
+  snapshotHeroMaps(state);
+  state.diffId = d.id;
+  ensureDiffProgress(state);
+  restoreHeroMaps(state);
+  return { ok: true, diff: d };
+}
+
+function stampLootDiff(item, state) {
+  if (!item || !state) return item;
+  item.diffId = getWorldDiff(state).id;
+  return item;
+}
+
 function ensureRiftHero(hero) {
   if (!hero) return hero;
   if (!hero.riftFloor || hero.riftFloor < 1) hero.riftFloor = 1;
@@ -341,17 +532,56 @@ function ensureRiftHero(hero) {
   return hero;
 }
 
-function riftUnlocked(state) {
-  const ws = MAPS.find(m => m.id === 'worldstone');
-  return !!ws && mapUnlocked(state, ws);
+function riftDifficultyMult(floor) {
+  return 1 + Math.max(0, (Math.max(1, floor || 1) - 1) * 0.02);
 }
 
-function getCurrentMap(hero) {
+function riftHighestOpen(hero) {
+  ensureRiftHero(hero);
+  return Math.max(1, (hero.riftBest || 0) + 1);
+}
+
+function shiftRiftFloor(hero, dir) {
+  ensureRiftHero(hero);
+  const max = riftHighestOpen(hero);
+  const next = Math.max(1, Math.min(max, (hero.riftFloor || 1) + (dir || 0)));
+  if (next === hero.riftFloor) return false;
+  hero.riftFloor = next;
+  hero.riftProgress = 0;
+  hero.riftBossReady = false;
+  return true;
+}
+
+function getCurrentMap(hero, state) {
+  let map;
   if (hero?.currentMap === 'rift') {
     ensureRiftHero(hero);
-    return makeRiftMap(hero.riftFloor);
+    map = makeRiftMap(hero.riftFloor);
+  } else {
+    map = getMap(hero?.currentMap);
   }
-  return getMap(hero?.currentMap);
+  return state ? withDiffLevels(map, state) : map;
+}
+
+function tryAutoNextMap(state, hero) {
+  if (!state || state.autoNextMap === false || !hero) return null;
+  if (hero.currentMap === 'rift') return null;
+  const map = getMap(hero.currentMap);
+  if (!map || map.isRift) return null;
+  const p = mapClearProgress(state, map);
+  if (!p.ready) return null;
+  if (map.isBoss && !state.bossesKilled?.[map.bossId]) return null;
+  const idx = MAPS.findIndex(m => m.id === map.id);
+  for (let i = idx + 1; i < MAPS.length; i++) {
+    const n = MAPS[i];
+    if (!mapUnlocked(state, n)) continue;
+    if (n.id === hero.currentMap) return null;
+    hero.currentMap = n.id;
+    state.mapsEntered = state.mapsEntered || {};
+    state.mapsEntered[n.id] = true;
+    return n;
+  }
+  return null;
 }
 
 function mapClearProgress(state, map) {
@@ -371,15 +601,14 @@ function onRiftBossKill(state, hero, monster) {
   ensureRiftHero(hero);
   const cleared = hero.riftFloor;
   hero.riftBest = Math.max(hero.riftBest || 0, cleared);
-  hero.riftFloor = cleared + 1;
   hero.riftProgress = 0;
   hero.riftBossReady = false;
   const loot = [];
   const lv = monster?.level || 88;
-  loot.push(generateLoot(lv, null, 'riftBoss', hero.charId));
-  if (Math.random() < 0.45) loot.push(generateLoot(lv, null, 'riftBoss', hero.charId));
-  if (Math.random() < 0.12) loot.push(generateLoot(lv, 'ancient', 'riftBoss', hero.charId));
-  return { cleared, next: hero.riftFloor, loot };
+  loot.push(generateLoot(lv, null, 'riftBoss', hero.charId, state));
+  if (Math.random() < 0.45) loot.push(generateLoot(lv, null, 'riftBoss', hero.charId, state));
+  if (Math.random() < 0.12) loot.push(generateLoot(lv, 'ancient', 'riftBoss', hero.charId, state));
+  return { cleared, next: hero.riftFloor, unlocked: riftHighestOpen(hero), loot };
 }
 
 function grantActClears(state, act) {
@@ -395,6 +624,10 @@ function mapProgressNeed(map) {
   if (!map) return 140;
   if (map.isBoss) return map.bossKills || map.clearKills || 50;
   return map.clearKills || 140;
+}
+
+function riftUnlocked(state) {
+  return !!(state?.bossesKilled?.diablo);
 }
 
 function mapUnlocked(state, map) {
@@ -478,7 +711,7 @@ function chapterBossAppearChance(state, map, pity = 0) {
 }
 
 function mapClearFactor(state, map) {
-  if (map?.isRift) return Math.min(1.5, 0.9 + Math.max(0, (map.riftFloor || 1) - 1) * 0.05);
+  if (map?.isRift) return Math.min(1.5, 0.9 + Math.max(0, (map.riftFloor || 1) - 1) * 0.02);
   const need = map.clearKills || 140;
   return (state.mapKills?.[map.id] || 0) / need;
 }
@@ -501,7 +734,7 @@ function mapUnlockHint(state, map) {
 function rollQuality(kindBonus = 1) {
   const weights = QUALITY_WEIGHTS.map(q => {
     let w = q.weight;
-    if (['unique', 'legendary', 'ancient', 'ancientSet', 'set'].includes(q.quality)) w *= kindBonus;
+    if (['unique', 'legendary', 'ancient', 'ancientSet', 'ancientUnique', 'set'].includes(q.quality)) w *= kindBonus;
     return { ...q, weight: w };
   });
   const total = weights.reduce((s, q) => s + q.weight, 0);
@@ -517,7 +750,7 @@ function maybeMorph(item) {
   if (item.morphId) return item;
   const q = item.quality;
   let chance = 0;
-  if (q === 'unique') chance = 0.7;
+  if (q === 'unique' || q === 'ancientUnique') chance = q === 'ancientUnique' ? 1 : 0.7;
   else if (q === 'legendary') chance = 0.6;
   else if (q === 'ancient') chance = 1;
   if (Math.random() > chance) return item;
@@ -536,12 +769,50 @@ function itemLevelOf(itemOrLevel, fallback = 1) {
 }
 
 function clampItemLevel(n) {
-  return Math.max(1, Math.min(99, Math.round(n || 1)));
+  return Math.max(1, Math.min(110, Math.round(n || 1)));
 }
 
 function preferredAffixTier(ilvl) {
   const lv = clampItemLevel(ilvl);
-  return 15 - (lv / 99) * 14;
+  return 15 - (lv / 110) * 14;
+}
+
+function namedAffixBand(ilvl) {
+  const lv = clampItemLevel(ilvl);
+  const bands = NAMED_AFFIX_TIER_BANDS || [];
+  return bands.find(b => lv <= b.maxLevel) || bands[bands.length - 1] || { best: 1, mode: 3 };
+}
+
+function namedAffixTierWeight(ilvl, tier) {
+  const { best, mode } = namedAffixBand(ilvl);
+  if (tier < best || tier > AFFIX_TIER_MAX) return 0;
+  const sigma = 2.15;
+  const d = (tier - mode) / sigma;
+  return Math.exp(-0.5 * d * d);
+}
+
+function rollNamedAffixTier(ilvl) {
+  const weights = [];
+  let total = 0;
+  for (let t = 1; t <= AFFIX_TIER_MAX; t++) {
+    const w = namedAffixTierWeight(ilvl, t);
+    weights.push(w);
+    total += w;
+  }
+  if (total <= 0) return namedAffixBand(ilvl).mode || AFFIX_TIER_MAX;
+  let r = Math.random() * total;
+  for (let t = 1; t <= AFFIX_TIER_MAX; t++) {
+    r -= weights[t - 1];
+    if (r <= 0) return t;
+  }
+  return AFFIX_TIER_MAX;
+}
+
+function rollAffixTierForItem(item, opts = {}) {
+  const ilvl = itemLevelOf(item);
+  if (opts.forceT1) return 1;
+  if (usesNamedAffixBands(item)) return rollNamedAffixTier(ilvl);
+  return rollAffixTier(ilvl, !!opts.favorBest);
 }
 
 function affixTierWeight(ilvl, tier, favorBest = false) {
@@ -651,7 +922,7 @@ function refreshItemBases(item) {
 function stampItemLevel(item, monsterLevel = 1) {
   if (!item) return item;
   if (!item.itemLevel) item.itemLevel = clampItemLevel(monsterLevel);
-  if (!item.reqLevel) item.reqLevel = Math.max(1, Math.min(99, item.itemLevel - 4));
+  if (!item.reqLevel) item.reqLevel = Math.max(1, Math.min(110, item.itemLevel - 4));
   return item;
 }
 
@@ -726,7 +997,10 @@ function makeRolledAffix(def, itemOrLevel, maxed) {
   const { min, max } = affixBounds(def);
   const forceT1 = maxed === true || maxed?.forceT1;
   const favor = maxed === true || maxed?.favorBest;
-  const tier = forceT1 ? 1 : rollAffixTier(ilvl, !!favor);
+  const item = itemOrLevel && typeof itemOrLevel === 'object' ? itemOrLevel : null;
+  const tier = item
+    ? rollAffixTierForItem(item, { forceT1, favorBest: favor })
+    : (forceT1 ? 1 : rollAffixTier(ilvl, !!favor));
   const value = Math.min(max, Math.max(min, affixValueAtTier(def, tier)));
   return {
     id: def.id,
@@ -735,7 +1009,7 @@ function makeRolledAffix(def, itemOrLevel, maxed) {
     value,
     min,
     max,
-    tier: affixTierFromValue(def, value),
+    tier,
     suffix: def.suffix || '',
     exclusive: !!def.exclusive || !!maxed?.exclusive,
     kind: affixKind(def),
@@ -771,7 +1045,7 @@ function stampExclusiveAffix(item, forceT1) {
   }
   const def = pickExclusiveDef(item);
   if (!def) return item;
-  item.exclusiveAffix = makeRolledAffix(def, item, forceT1 ? { forceT1: true, exclusive: true } : { exclusive: true });
+  item.exclusiveAffix = makeRolledAffix(def, item, { exclusive: true, forceT1: !!forceT1 });
   item.exclusiveAffix.exclusive = true;
   return item;
 }
@@ -795,10 +1069,15 @@ function rollItemAffixes(item, mapLevel = 1) {
   if (!item) return item;
   stampItemLevel(item, mapLevel);
   const ancient = isAncientItem(item);
+  const named = usesNamedAffixBands(item);
   const count = affixCountFor(item.quality, ancient);
   const kept = (item.affixes || [])
     .filter(a => a && !a.exclusive)
-    .map(a => stampAffixMeta({ ...a }, item))
+    .map((a) => {
+      if (!named) return stampAffixMeta({ ...a }, item);
+      const def = findAffixDef(a);
+      return def ? makeRolledAffix(def, item, false) : stampAffixMeta({ ...a }, item);
+    })
     .slice(0, count);
   const used = new Set(kept.flatMap(a => [a.id, a.stat].filter(Boolean)));
   const affixes = kept.slice();
@@ -807,20 +1086,10 @@ function rollItemAffixes(item, mapLevel = 1) {
     if (!def) break;
     used.add(def.id);
     used.add(def.stat);
-    affixes.push(makeRolledAffix(def, item, ancient ? { forceT1: true } : false));
-  }
-  if (ancient) {
-    for (const a of affixes) {
-      const def = findAffixDef(a);
-      if (!def) continue;
-      a.value = affixValueAtTier(def, 1);
-      a.tier = 1;
-      a.min = affixBounds(def).min;
-      a.max = affixBounds(def).max;
-    }
+    affixes.push(makeRolledAffix(def, item, false));
   }
   item.affixes = affixes;
-  stampExclusiveAffix(item, ancient);
+  stampExclusiveAffix(item, false);
   refreshItemBases(item);
   return item;
 }
@@ -862,7 +1131,7 @@ function ensureItemAffixes(item, mapLevel = 1) {
       else if (best <= 9) item.itemLevel = 31;
       else item.itemLevel = Math.max(1, Math.min(30, mapLevel || 20));
     } else {
-      item.itemLevel = Math.max(1, Math.min(99, Math.round(mapLevel || 1)));
+      item.itemLevel = Math.max(1, Math.min(110, Math.round(mapLevel || 1)));
     }
   }
   stampItemLevel(item, item.itemLevel);
@@ -894,18 +1163,10 @@ function ensureItemAffixes(item, mapLevel = 1) {
     if (!def) break;
     used.add(def.id);
     used.add(def.stat);
-    item.affixes.push(makeRolledAffix(def, item, ancient ? { forceT1: true } : false));
+    item.affixes.push(makeRolledAffix(def, item, false));
   }
   if (item.affixes.length > target) item.affixes = item.affixes.slice(0, target);
-  if (ancient) {
-    for (const a of item.affixes) {
-      const def = findAffixDef(a);
-      if (!def) continue;
-      a.value = affixValueAtTier(def, 1);
-      a.tier = 1;
-    }
-  }
-  stampExclusiveAffix(item, ancient);
+  stampExclusiveAffix(item, false);
   return item;
 }
 
@@ -969,7 +1230,7 @@ function pickLootBase(slot, charId) {
   return pickFrom(generic.length ? generic : list);
 }
 
-function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = null) {
+function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = null, state = null) {
   const kindBonus = kind === 'goblin' ? 5.4
     : kind === 'hidden' ? 4.8
     : kind === 'rare' || kind === 'rareBoss' ? 4.2
@@ -982,7 +1243,7 @@ function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = n
     const item = cloneItem(def);
     item.quality = q;
     item.itemLevel = clampItemLevel(mapLevel);
-    item.reqLevel = Math.max(1, Math.min(99, item.itemLevel - 4));
+    item.reqLevel = Math.max(1, Math.min(110, item.itemLevel - 4));
     if (!item.reqClass && item.setId && SETS[item.setId]?.reqClass) {
       item.reqClass = SETS[item.setId].reqClass;
     }
@@ -990,12 +1251,12 @@ function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = n
     if (def.armor) item.listedArmor = def.armor;
     if (def.attackSpeed) item.listedAttackSpeed = def.attackSpeed;
     refreshItemBases(item);
-    return maybeMorph(rollItemAffixes(item, item.itemLevel));
+    return stampLootDiff(maybeMorph(rollItemAffixes(item, item.itemLevel)), state);
   };
 
-  if (quality === 'unique') {
+  if (quality === 'unique' || quality === 'ancientUnique') {
     if (UNIQUE_ITEMS.length) {
-      return finishNamed(pickNamedLoot(UNIQUE_ITEMS, charId));
+      return finishNamed(pickNamedLoot(UNIQUE_ITEMS, charId), quality);
     }
   }
 
@@ -1021,7 +1282,7 @@ function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = n
     slot, quality, locked: false, affixes: [],
     itemLevel: clampItemLevel(mapLevel),
   };
-  item.reqLevel = Math.max(1, Math.min(99, item.itemLevel - 4));
+  item.reqLevel = Math.max(1, Math.min(110, item.itemLevel - 4));
   if (base.baseDamage) item.listedDamage = base.baseDamage;
   if (base.armor) item.listedArmor = base.armor;
   if (base.weaponClass) item.weaponClass = base.weaponClass;
@@ -1031,7 +1292,7 @@ function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = n
   if (base.reqClass) item.reqClass = base.reqClass;
   refreshItemBases(item);
   rollItemAffixes(item, item.itemLevel);
-  return maybeMorph(item);
+  return stampLootDiff(maybeMorph(item), state);
 }
 
 function sellValue(item) {
@@ -1046,12 +1307,14 @@ function sellValue(item) {
     legendary: 8.8,
     ancient: 12.2,
     ancientSet: 12.6,
+    ancientUnique: 12.4,
   }[item.quality] || 1;
   const affn = item.affixes?.length || 0;
   const enh = item.enhance || 0;
   let gold = (20 + ilvl * 18 + ilvl * ilvl * 0.32) * qMult;
   gold *= 1 + affn * 0.12;
   gold *= 1 + enh * 0.08;
+  gold *= 0.7 + 0.3 * itemLootMult(item);
   if (item.exclusiveAffix) gold *= 1.22;
   if (item.legendaryEffect) gold *= 1.15;
   return Math.max(10, Math.floor(gold));
@@ -1410,14 +1673,37 @@ function ensureTrain(hero) {
   return hero.train;
 }
 
-function trainLevelCost(def, lv) {
-  const n = lv + 1;
+function growthResourceCost(level, goldMul = 20, matMul = 0.05) {
+  const e = expForLevel(Math.max(1, Math.min(99, Math.round(level))));
+  const mats = Math.max(1, Math.ceil(e * matMul));
   return {
-    gold: Math.floor(def.unlock.gold * 0.22 * n * (1 + n * 0.12)),
-    metal: Math.ceil((def.unlock.metal || 0) * 0.1 * n),
-    cloth: Math.ceil((def.unlock.cloth || 0) * 0.1 * n),
-    crystal: Math.ceil((def.unlock.crystal || 0) * 0.1 * n),
+    gold: Math.max(20, Math.floor(e * goldMul)),
+    metal: mats,
+    cloth: mats,
+    crystal: mats,
   };
+}
+
+function highestOpenAct(state) {
+  let act = 1;
+  const killed = state?.bossesEver || state?.bossesKilled || {};
+  if (killed.visna) act = 2;
+  if (killed.duriel) act = 3;
+  if (killed.council) act = 4;
+  if (killed.diablo) act = 5;
+  if (killed.baal) act = 6;
+  return act;
+}
+
+function trainUnlockCost(def) {
+  const hall = Math.max(1, def?.hall || 1);
+  return growthResourceCost(hall * 12, 55, 0.16);
+}
+
+function trainLevelCost(def, lv) {
+  const n = Math.max(1, (lv || 0) + 1);
+  const hall = Math.max(1, def?.hall || 1);
+  return growthResourceCost(5 + n * 2 + hall * 2, 40 + hall * 6, 0.12 + hall * 0.015);
 }
 
 function getHallLevel(state) {
@@ -1426,18 +1712,25 @@ function getHallLevel(state) {
 
 function hallUpgradeCost(lv) {
   const n = Math.max(1, lv);
-  return {
-    gold: 12000 * n * n,
-    metal: 25 * n,
-    cloth: 25 * n,
-    crystal: 25 * n,
-  };
+  return growthResourceCost(12 + n * 8, 36 + n * 10, 0.12 + n * 0.025);
+}
+
+function hallUpgradeBlocked(state) {
+  const lv = getHallLevel(state);
+  if (lv >= HALL_MAX) return '议事厅已满级';
+  const need = lv + 1;
+  if (highestOpenAct(state) < need) {
+    const names = { 1: '一章', 2: '二章', 3: '三章', 4: '四章', 5: '五章', 6: '秘境' };
+    return `解锁${names[need] || `${need}章`}后可升级议事厅`;
+  }
+  return '';
 }
 
 function upgradeHall(state) {
   const town = ensureTown(state);
   const lv = town.hallLevel || 1;
-  if (lv >= HALL_MAX) return { ok: false, reason: '议事厅已满级' };
+  const why = hallUpgradeBlocked(state);
+  if (why) return { ok: false, reason: why };
   const cost = hallUpgradeCost(lv);
   const pay = payCost(state, cost);
   if (!pay.ok) return pay;
@@ -1455,11 +1748,11 @@ function unlockTrainStat(state, statId) {
   if (getHallLevel(state) < needHall) {
     return { ok: false, reason: '议事厅条件不满足' };
   }
-  const pay = payCost(state, def.unlock);
+  const pay = payCost(state, trainUnlockCost(def));
   if (!pay.ok) return pay;
   hero.train.unlocked[statId] = true;
   hero.train.lv[statId] = 0;
-  return { ok: true, cost: def.unlock };
+  return { ok: true, cost: trainUnlockCost(def) };
 }
 
 function upgradeTrainStat(state, statId) {
@@ -1469,7 +1762,7 @@ function upgradeTrainStat(state, statId) {
   ensureTrain(hero);
   if (!hero.train.unlocked[statId]) return { ok: false, reason: '尚未解锁' };
   const lv = hero.train.lv[statId] || 0;
-  if (lv >= def.max) return { ok: false, reason: '已达上限' };
+  if (lv >= (def.max || TRAIN_MAX)) return { ok: false, reason: '已达上限' };
   const cost = trainLevelCost(def, lv);
   const pay = payCost(state, cost);
   if (!pay.ok) return pay;
@@ -1511,7 +1804,7 @@ function rerollItemAffix(state, item) {
   const used = new Set(others.flatMap(a => [a.id, a.stat].filter(Boolean)));
   const current = item.exclusiveAffix ? others.concat(item.exclusiveAffix) : others;
   const def = pickAffixDef(used, item, current);
-  const next = makeRolledAffix(def, item, isAncientItem(item) ? { forceT1: true } : false);
+  const next = makeRolledAffix(def, item, false);
   const realIdx = item.affixes.indexOf(regular[idx]);
   const prev = item.affixes[realIdx];
   item.affixes[realIdx] = next;
@@ -1658,6 +1951,7 @@ function expectedItemBase(item) {
 }
 
 function scoreGrade(n) {
+  if (n >= 1000) return 'SSS';
   if (n >= 850) return 'SS';
   if (n >= 700) return 'S';
   if (n >= 560) return 'A';
@@ -1680,8 +1974,10 @@ function statAxisWeight(hero, stat, axis) {
   const elements = charId === 'sorceress';
   const ranged = charId === 'amazon' || charId === 'sorceress' || charId === 'necro';
   const melee = charId === 'berserker' || charId === 'paladin' || charId === 'assassin';
-  if (stat === 'str' || stat === 'agi' || stat === 'int') {
-    if (axis === 'surv') return 0.12;
+  if (stat === 'str' || stat === 'agi' || stat === 'int' || stat === 'vit' || stat === 'wis') {
+    if (axis === 'surv') return stat === 'vit' ? 1.05 : 0.12;
+    if (stat === 'vit') return 0.2;
+    if (stat === 'wis') return caster ? 0.95 : 0.4;
     if (stat === main) return 1.2;
     if (stat === 'int' && caster) return 0.55;
     return 0.35;
@@ -1726,17 +2022,19 @@ function scoreItem(item, hero) {
   let atk = 0;
   let surv = 0;
   const exp = expectedItemBase(item);
-  if (item.baseDamage && exp.damage) atk += 34 * Math.min(1.35, item.baseDamage / exp.damage);
-  if (item.attackSpeed) atk += 8 * Math.min(1.3, item.attackSpeed / 0.1);
-  if (item.armor && exp.armor) surv += 34 * Math.min(1.35, item.armor / Math.max(1, exp.armor));
-  else if (item.armor) surv += Math.min(18, item.armor * 0.45);
+  const lootM = itemLootMult(item);
+  const affQ = itemAffixQualityMult(item);
+  if (item.baseDamage && exp.damage) atk += 34 * (item.baseDamage / exp.damage) * lootM;
+  if (item.attackSpeed) atk += 8 * (item.attackSpeed / 0.1);
+  if (item.armor && exp.armor) surv += 34 * (item.armor / Math.max(1, exp.armor)) * lootM;
+  else if (item.armor) surv += item.armor * 0.45 * lootM;
 
   const addAffix = (a) => {
     if (!a?.stat) return;
     const ratio = affixRollRatio(a);
     const k = affixKind(a);
-    if (k === 'atk' || k === 'attr') atk += ratio * 12 * statAxisWeight(hero, a.stat, 'atk');
-    if (k === 'def' || k === 'attr') surv += ratio * 12 * statAxisWeight(hero, a.stat, 'surv');
+    if (k === 'atk' || k === 'attr') atk += ratio * 12 * statAxisWeight(hero, a.stat, 'atk') * lootM * affQ;
+    if (k === 'def' || k === 'attr') surv += ratio * 12 * statAxisWeight(hero, a.stat, 'surv') * lootM * affQ;
   };
   for (const a of item.affixes || []) addAffix(a);
   addAffix(item.exclusiveAffix);
@@ -1760,8 +2058,8 @@ function scoreItem(item, hero) {
     }
   }
 
-  const atkN = Math.round(Math.max(0, Math.min(100, atk)) * 10);
-  const survN = Math.round(Math.max(0, Math.min(100, surv)) * 10);
+  const atkN = Math.round(Math.max(0, atk) * 10);
+  const survN = Math.round(Math.max(0, surv) * 10);
   return {
     usable: !block,
     reason: block || '',
@@ -1770,6 +2068,53 @@ function scoreItem(item, hero) {
     atkGrade: scoreGrade(atkN),
     survGrade: scoreGrade(survN),
   };
+}
+
+function combatPowerScore(dps, ehp) {
+  return Math.max(1, Math.round(Math.sqrt(Math.max(1, dps) * Math.max(1, ehp)) * 10));
+}
+
+function itemPowerScore(item, hero) {
+  const s = scoreItem(item, hero);
+  return (s.atk || 0) + (s.surv || 0);
+}
+
+function heroGearScore(hero) {
+  if (!hero) return 0;
+  const dps = typeof calcDPS === 'function' ? calcDPS(hero) : 1;
+  const ehp = typeof calcEHP === 'function' ? calcEHP(hero, hero.level || 10) : 1;
+  return combatPowerScore(dps, ehp);
+}
+
+function mapLevelAvg(map) {
+  const a = Number(map?.levelMin ?? 1);
+  const b = Number(map?.levelMax ?? a);
+  return (a + b) / 2;
+}
+
+function mapRecommendScore(map, state) {
+  if (!map) return 0;
+  const lv = Math.max(1, Math.round(mapLevelAvg(map)));
+  const w = (typeof worldMonsterMult === 'function' && state) ? worldMonsterMult(state) : 1;
+  const rift = (map.isRift && typeof riftDifficultyMult === 'function')
+    ? riftDifficultyMult(map.riftFloor) : 1;
+  let hp;
+  let dmg;
+  if (map.isBoss && map.bossId && typeof BOSSES !== 'undefined' && BOSSES[map.bossId]) {
+    const boss = BOSSES[map.bossId];
+    const from = monsterStats(Math.max(1, boss.level || lv));
+    const to = monsterStats(lv);
+    hp = boss.hp * (to.hp / Math.max(1, from.hp)) * w * rift;
+    dmg = boss.damage * (to.damage / Math.max(1, from.damage)) * w * rift;
+  } else {
+    const ms = monsterStats(lv);
+    const pack = ((map.packMin || 1) + (map.packMax || 1)) / 2;
+    hp = ms.hp * w * rift * pack * 1.55;
+    dmg = ms.damage * w * rift * 1.3;
+  }
+  const dpsNeed = hp / (map.isBoss ? 9 : 3.6);
+  const ehpNeed = dmg * (map.isBoss ? 18 : 12);
+  return combatPowerScore(dpsNeed, ehpNeed);
 }
 
 function offlineEfficiency(hours) {
@@ -1784,7 +2129,7 @@ function calcOfflineRewards(state) {
   const hours = Math.min(elapsed / 3600000, OFFLINE_MAX_HOURS);
   if (hours < 0.01) return null;
   const hero = getActiveHero(state);
-  const map = getCurrentMap(hero);
+  const map = getCurrentMap(hero, state);
   const avgLevel = (map.levelMin + map.levelMax) / 2;
   const dps = calcDPS(hero);
   const killTime = (28 + avgLevel * 22) / Math.max(dps, 1);
@@ -1802,7 +2147,7 @@ function calcOfflineRewards(state) {
     expPen: info.label || '',
   };
   const itemCount = Math.min(18, Math.floor(kills * 0.018));
-  for (let i = 0; i < itemCount; i++) rewards.items.push(generateLoot(avgLevel, null, 'normal', hero.charId));
+  for (let i = 0; i < itemCount; i++) rewards.items.push(generateLoot(avgLevel, null, 'normal', hero.charId, state));
   return rewards;
 }
 
@@ -1818,45 +2163,63 @@ function claimOfflineRewards(state, rewards) {
 
 function onBossKill(state, bossId) {
   const boss = BOSSES[bossId];
-  const first = !state.bossesKilled[bossId];
-  const loot = first
-    ? generateLoot(boss.level, 'legendary', 'actBoss', getActiveHero(state)?.charId)
-    : generateLoot(boss.level, null, 'actBoss', getActiveHero(state)?.charId);
-  if (!first) {
-    return { loot, repeat: true };
-  }
-  state.bossesKilled[bossId] = true;
   const map = MAPS.find(m => m.bossId === bossId);
+  const scaled = withDiffLevels(map, state);
+  const lv = scaled ? Math.round((scaled.levelMin + scaled.levelMax) / 2) : (boss.level || 1);
+  const firstOnDiff = !state.bossesKilled[bossId];
+  const firstEver = !state.bossesEver[bossId];
+  const loot = firstOnDiff
+    ? generateLoot(lv, 'legendary', 'actBoss', getActiveHero(state)?.charId, state)
+    : generateLoot(lv, null, 'actBoss', getActiveHero(state)?.charId, state);
+  const unlockedDiff = bossId === 'baal' ? markDiffCleared(state, getWorldDiff(state).id) : null;
+  state.bossesKilled[bossId] = true;
+  state.bossesEver[bossId] = true;
+  if (!firstOnDiff) {
+    return { loot, repeat: true, unlockedDiff };
+  }
   if (map?.act) grantActClears(state, map.act);
   const reward = boss.firstKillReward || {};
   const unlocked = [];
-  for (const id of reward.unlockChars || []) {
-    if (!state.unlockedChars.includes(id)) {
-      state.unlockedChars.push(id);
-      state.heroes[id] = createHero(id, Math.max(1, getActiveHero(state).level - 4));
-      unlocked.push(id);
+  if (firstEver) {
+    for (const id of reward.unlockChars || []) {
+      if (!state.unlockedChars.includes(id)) {
+        state.unlockedChars.push(id);
+        state.heroes[id] = createHero(id);
+        unlocked.push(id);
+      }
     }
   }
   const nextAct = (map?.act || 0) + 1;
   const nextMaps = MAPS.filter(m => m.act === nextAct);
-  return { unlockChars: unlocked, loot, act: map?.act, nextAct: nextMaps.length ? nextAct : null };
+  return { unlockChars: unlocked, loot, act: map?.act, nextAct: nextMaps.length ? nextAct : null, unlockedDiff };
 }
 
 function getUnlockProgress(state) {
+  const killed = state.bossesEver || state.bossesKilled || {};
   return {
-    visna: state.bossesKilled.visna,
-    duriel: state.bossesKilled.duriel,
-    council: state.bossesKilled.council,
-    diablo: state.bossesKilled.diablo,
+    visna: killed.visna,
+    duriel: killed.duriel,
+    council: killed.council,
+    diablo: killed.diablo,
   };
 }
 
 function getInvCap(state) {
-  return INV_CAP + (state.bagExpands || 0) * 8;
+  return INV_CAP + (state.bagExpands || 0) * BAG_EXPAND_SLOTS;
+}
+
+function bagExpandsLeft(state) {
+  return Math.max(0, BAG_EXPAND_MAX - (state.bagExpands || 0));
 }
 
 function bagExpandCost(state) {
-  return 400 * (1 + (state.bagExpands || 0));
+  const n = (state.bagExpands || 0) + 1;
+  return {
+    gold: Math.floor(10000 * n * n * (1 + (n - 1) * 0.15)),
+    metal: 12 * n + 4 * n * n,
+    cloth: 12 * n + 4 * n * n,
+    crystal: 8 * n + 2 * n * n,
+  };
 }
 
 function skillResetCost(hero) {
@@ -1864,10 +2227,10 @@ function skillResetCost(hero) {
 }
 
 function buyBagExpand(state) {
-  if ((state.bagExpands || 0) >= 8) return { ok: false, reason: '背包已扩到上限' };
+  if ((state.bagExpands || 0) >= BAG_EXPAND_MAX) return { ok: false, reason: '背包已扩到上限' };
   const cost = bagExpandCost(state);
-  if (state.gold < cost) return { ok: false, reason: '金币不足' };
-  state.gold -= cost;
+  const pay = payCost(state, cost);
+  if (!pay.ok) return pay;
   state.bagExpands = (state.bagExpands || 0) + 1;
   return { ok: true, cost };
 }
@@ -1885,16 +2248,31 @@ function buySkillReset(state) {
   return { ok: true, cost };
 }
 
-function potionTierDef(state) {
+function potionKindKey(kind) {
+  return kind === 'mana' ? 'manaPotionTier' : 'hpPotionTier';
+}
+
+function potionTierDef(state, kind = 'hp') {
+  ensurePotionState(state);
   const max = POTION_TIERS.length;
-  const lv = Math.max(1, Math.min(max, state.potionTier || 1));
+  const lv = Math.max(1, Math.min(max, state[potionKindKey(kind)] || 1));
   return POTION_TIERS[lv - 1];
 }
 
-function potionUpgradeCost(state) {
-  const lv = state.potionTier || 1;
-  if (lv >= POTION_TIERS.length) return 0;
-  return Math.floor(480 * Math.pow(2.35, lv - 1));
+function potionUpgradeCost(state, kind = 'hp') {
+  ensurePotionState(state);
+  const lv = state[potionKindKey(kind)] || 1;
+  if (lv >= POTION_TIERS.length) return { gold: 0 };
+  return growthResourceCost(lv * 12 + 6, 16, 0.065);
+}
+
+function potionUpgradeBlocked(state, kind = 'hp') {
+  ensurePotionState(state);
+  const lv = state[potionKindKey(kind)] || 1;
+  if (lv >= POTION_TIERS.length) return '药水已达最高级';
+  const needHall = lv + 1;
+  if (getHallLevel(state) < needHall) return `需议事厅 ${needHall} 级`;
+  return '';
 }
 
 function usesManaPotions(stats) {
@@ -1910,6 +2288,8 @@ function ensurePotionState(state) {
   if (state.hpPotions == null) state.hpPotions = 8;
   if (state.manaPotions == null) state.manaPotions = 6;
   if (!state.potionTier) state.potionTier = 1;
+  if (state.hpPotionTier == null) state.hpPotionTier = state.potionTier || 1;
+  if (state.manaPotionTier == null) state.manaPotionTier = state.potionTier || 1;
   const a = state.potionAuto || {};
   state.potionAuto = {
     buyHp: a.buyHp !== false,
@@ -1923,7 +2303,7 @@ function ensurePotionState(state) {
 
 function buyPotions(state, n, kind = 'hp') {
   ensurePotionState(state);
-  const tier = potionTierDef(state);
+  const tier = potionTierDef(state, kind);
   const count = Math.max(1, n || POTION_PACK);
   const cost = tier.unitCost * count;
   if (state.gold < cost) return { ok: false, reason: '金币不足' };
@@ -1933,14 +2313,17 @@ function buyPotions(state, n, kind = 'hp') {
   return { ok: true, cost, count, kind };
 }
 
-function upgradePotionTier(state) {
+function upgradePotionTier(state, kind = 'hp') {
   ensurePotionState(state);
-  if ((state.potionTier || 1) >= POTION_TIERS.length) return { ok: false, reason: '药水已达最高级' };
-  const cost = potionUpgradeCost(state);
-  if (state.gold < cost) return { ok: false, reason: '金币不足' };
-  state.gold -= cost;
-  state.potionTier = (state.potionTier || 1) + 1;
-  return { ok: true, cost, tier: potionTierDef(state) };
+  const why = potionUpgradeBlocked(state, kind);
+  if (why) return { ok: false, reason: why };
+  const cost = potionUpgradeCost(state, kind);
+  const pay = payCost(state, cost);
+  if (!pay.ok) return pay;
+  const key = potionKindKey(kind);
+  state[key] = (state[key] || 1) + 1;
+  state.potionTier = Math.max(state.hpPotionTier || 1, state.manaPotionTier || 1);
+  return { ok: true, cost, kind, tier: potionTierDef(state, kind) };
 }
 
 function togglePotionAuto(state, key) {
@@ -1972,18 +2355,19 @@ function tickDrinkPotions(state, hero, stats) {
   if (!hero || hero.isDead || !stats) return out;
   ensurePotionState(state);
   const a = state.potionAuto;
-  const tier = potionTierDef(state);
+  const hpTier = potionTierDef(state, 'hp');
+  const manaTier = potionTierDef(state, 'mana');
   if (a.useHp && stats.maxHp > 0 && hero.currentHp / stats.maxHp <= 0.42 && (state.hpPotions || 0) > 0) {
     state.hpPotions -= 1;
-    out.healPct = tier.healPct;
-    hero.currentHp = Math.min(stats.maxHp, hero.currentHp + stats.maxHp * tier.healPct);
+    out.healPct = hpTier.healPct;
+    hero.currentHp = Math.min(stats.maxHp, hero.currentHp + stats.maxHp * hpTier.healPct);
     out.usedHp = true;
   }
   if (a.useMana && usesManaPotions(stats) && stats.maxRes > 0
     && (hero.currentRes || 0) / stats.maxRes <= 0.35 && (state.manaPotions || 0) > 0) {
     state.manaPotions -= 1;
-    out.manaPct = tier.manaPct;
-    hero.currentRes = Math.min(stats.maxRes, (hero.currentRes || 0) + stats.maxRes * tier.manaPct);
+    out.manaPct = manaTier.manaPct;
+    hero.currentRes = Math.min(stats.maxRes, (hero.currentRes || 0) + stats.maxRes * manaTier.manaPct);
     out.usedMana = true;
   }
   return out;

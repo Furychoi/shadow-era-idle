@@ -65,7 +65,8 @@ function calcHeroStats(hero, opts = {}) {
     str: 10 + level * 2,
     agi: 10 + (charDef.mainStat === 'agi' ? level * 2 : 0),
     int: 10 + (charDef.mainStat === 'int' ? level * 2 : 0),
-    vit: 10,
+    vit: 10 + level * 2,
+    wis: 10 + level * 2,
     hp: 0, maxHp: 0,
     damage: charDef.baseDamage + level * 1.5,
     armor: charDef.baseArmor + level * 0.5,
@@ -93,6 +94,9 @@ function calcHeroStats(hero, opts = {}) {
     hammerAoe: 0,
     fohExtra: 0,
     hpCostReduce: 0,
+    skillGrant: {},
+    skillDmg: {},
+    skillCostPct: {},
     attackRange: charDef.attackRange || 1.4,
     rangePct: 0,
     attackInterval: charDef.attackInterval * 2.55,
@@ -127,17 +131,25 @@ function calcHeroStats(hero, opts = {}) {
 
   stats.attackSpeed += stats.agi * 0.0015;
   const train = heroTrainBonuses(hero);
-  stats.damage = Math.floor(stats.damage * (1 + train.damage));
-  stats.attackSpeed += train.attackSpeed;
-  stats.fireDmgPct += train.elemDmg;
-  stats.iceDmgPct += train.elemDmg;
-  stats.lightningDmgPct += train.elemDmg;
-  stats.poisonDmgPct += train.elemDmg;
-  stats.physDmgPct += train.physDmg;
-  stats.cdrPct += train.cdr;
+  stats.str += train.str || 0;
+  stats.agi += train.agi || 0;
+  stats.int += train.int || 0;
+  stats.vit += train.vit || 0;
+  stats.wis += train.wisdom || 0;
+  stats.maxHp += (train.hp || 0) + (train.vit || 0) * 2;
+  stats.armor += train.armor || 0;
+  stats.allRes += train.allRes || 0;
+  stats.damage = Math.floor(stats.damage * (1 + (train.damage || 0)));
+  stats.attackSpeed += train.attackSpeed || 0;
+  stats.fireDmgPct += train.elemDmg || 0;
+  stats.iceDmgPct += train.elemDmg || 0;
+  stats.lightningDmgPct += train.elemDmg || 0;
+  stats.poisonDmgPct += train.elemDmg || 0;
+  stats.physDmgPct += train.physDmg || 0;
+  stats.cdrPct += train.cdr || 0;
   stats.attackSpeed = Math.min(0.9, stats.attackSpeed);
   stats.attackRange += stats.agi * 0.004;
-  stats.attackRange *= (1 + stats.rangePct) * (1 + train.attackRange);
+  stats.attackRange *= (1 + stats.rangePct) * (1 + (train.attackRange || 0));
   stats.attackRange = Math.min(7.2, Math.max(0.9, stats.attackRange));
   stats.maxHp = Math.floor(stats.maxHp);
   stats.damage = Math.floor(stats.damage);
@@ -157,17 +169,20 @@ function classResource(charId) {
 
 function applyResourceStats(stats, hero) {
   const r = classResource(hero.charId);
+  const fromWis = r.fromWis != null ? r.fromWis : (r.id === 'mana' ? 0.9 : 0.2);
+  const regenFromWis = r.regenFromWis != null ? r.regenFromWis : 0.03;
   const max = Math.floor(
     (r.maxBase || 0) +
     (hero.level || 1) * (r.maxPerLevel || 0) +
     stats.int * (r.fromInt || 0) +
-    stats.str * (r.fromStr || 0)
+    stats.str * (r.fromStr || 0) +
+    (stats.wis || 0) * fromWis
   );
   stats.resId = r.id;
   stats.resName = r.name;
   stats.resColor = r.color || '#4a8cee';
   stats.maxRes = Math.max(1, max);
-  stats.resRegen = Math.round((r.regen + stats.int * (r.regenFromInt || 0.03)) * 10) / 10;
+  stats.resRegen = Math.round((r.regen + stats.int * (r.regenFromInt || 0.03) + (stats.wis || 0) * regenFromWis) * 10) / 10;
   if (stats.resRegenPct) stats.resRegen = Math.round(stats.resRegen * (1 + stats.resRegenPct) * 10) / 10;
   stats.resOnHit = r.onHit || 0;
   stats.resOnKill = r.onKill || 0;
@@ -189,16 +204,24 @@ function gainResource(hero, stats, amount) {
   hero.currentRes = Math.min(max, (hero.currentRes || 0) + amount);
 }
 
-function skillResCost(hero, skill) {
+function skillResCost(hero, skill, stats) {
   if (!skill || skill.type === 'passive' || skill.type === 'aura') return 0;
-  if (skill.resCost != null) return Math.max(0, Math.floor(skill.resCost));
-  if (skill.resGain) return 0;
-  const r = classResource(hero.charId);
-  if (r.id === 'rage') return 0;
-  const lv = Math.max(1, hero.skillLevels?.[skill.id] || 1);
-  const base = (skill.cooldown || 0) > 0 ? skill.cooldown * 4 : 8;
-  const dmg = (skill.damageMult || 1) * 6;
-  return Math.max(6, Math.floor((base + dmg) * (1 - lv * 0.02)));
+  let cost = 0;
+  if (skill.resCost != null) cost = Math.max(0, Math.floor(skill.resCost));
+  else if (skill.resGain) cost = 0;
+  else {
+    const r = classResource(hero.charId);
+    if (r.id === 'rage') cost = 0;
+    else {
+      const lv = Math.max(1, hero.skillLevels?.[skill.id] || 1);
+      const base = (skill.cooldown || 0) > 0 ? skill.cooldown * 4 : 8;
+      const dmg = (skill.damageMult || 1) * 6;
+      cost = Math.max(6, Math.floor((base + dmg) * (1 - lv * 0.02)));
+    }
+  }
+  const cut = (stats || calcHeroStats(hero)).skillCostPct?.[skill.id] || 0;
+  if (cut > 0) cost = Math.max(0, Math.floor(cost * Math.max(0.15, 1 - cut)));
+  return cost;
 }
 
 function skillResGain(hero, skill) {
@@ -256,6 +279,12 @@ function skillBonusBreakdown(hero, opts = {}) {
       if (s.count >= parseInt(n, 10) && bonus.skillLevel) {
         parts.push({ name: `${s.def.name}${n}件`, add: bonus.skillLevel });
       }
+      if (s.count >= parseInt(n, 10) && bonus.skillGrant) {
+        for (const [id, lv] of Object.entries(bonus.skillGrant)) {
+          const nm = SKILLS[hero.charId]?.[id]?.name || id;
+          parts.push({ name: `${s.def.name}${n}件授予${nm}`, add: lv });
+        }
+      }
     }
   }
   return parts;
@@ -264,22 +293,32 @@ function skillBonusBreakdown(hero, opts = {}) {
 function skillLevelParts(hero, skillId, stats) {
   const skill = SKILLS[hero.charId]?.[skillId];
   const base = hero.skillLevels?.[skillId] || 0;
+  const grant = stats?.skillGrant?.[skillId] || 0;
   let bonus = stats?.skillLevelBonus || 0;
-  if (skill?.skillBonus) bonus -= skillBonusGranted(skill, base);
+  if (skill?.skillBonus) bonus -= skillBonusGranted(skill, Math.max(base, grant));
   bonus = Math.max(0, Math.round(bonus));
-  return { base, bonus, max: skill?.maxLevel || 10, skill };
+  return { base, grant, bonus, max: skill?.maxLevel || 10, skill };
+}
+
+function combatSkillLevel(hero, skillId, stats) {
+  const invested = hero.skillLevels?.[skillId] || 0;
+  const grant = stats?.skillGrant?.[skillId] || 0;
+  return Math.max(invested, grant);
 }
 
 function effectiveSkillLevel(hero, skillId, stats) {
   const p = skillLevelParts(hero, skillId, stats);
-  return p.base > 0 ? p.base + p.bonus : 0;
+  const usable = p.base + (p.grant || 0);
+  return usable > 0 ? Math.max(p.base, p.grant || 0) + p.bonus : 0;
 }
 
 function formatSkillLevelHtml(parts) {
-  if (parts.bonus > 0 && parts.base > 0) {
-    return `${parts.base}<span class="lv-bonus">+${parts.bonus}</span>/${parts.max}`;
+  let s = `${parts.base}`;
+  if ((parts.grant || 0) > 0) s += `<span class="lv-grant">+${parts.grant}套</span>`;
+  if (parts.bonus > 0 && (parts.base > 0 || (parts.grant || 0) > 0)) {
+    s += `<span class="lv-bonus">+${parts.bonus}</span>`;
   }
-  return `${parts.base}/${parts.max}`;
+  return `${s}/${parts.max}`;
 }
 
 function fmtSkillPct(n) {
@@ -438,6 +477,14 @@ function skillEffectLines(hero, skill, parts, stats) {
       lines.push(`联动 ${n} 每级 +${s.pct}%${slv ? `（当前 +${s.pct * slv}%）` : ''}`);
     }
   }
+  const setDmg = stats?.skillDmg?.[skill.id] || 0;
+  if (setDmg > 0) lines.push(`套装技能伤害 +${fmtSkillPct(setDmg)}`);
+  const grant = stats?.skillGrant?.[skill.id] || 0;
+  if (grant > 0 && (hero.skillLevels?.[skill.id] || 0) < grant) {
+    lines.push(`套装授予 ${grant} 级（无需前置即可释放）`);
+  }
+  const cut = stats?.skillCostPct?.[skill.id] || 0;
+  if (cut > 0) lines.push(`套装减少消耗 ${fmtSkillPct(cut)}`);
   return lines;
 }
 
@@ -553,6 +600,8 @@ function applyAffixToStats(stats, affix) {
     case 'str': stats.str += val; break;
     case 'agi': stats.agi += val; break;
     case 'int': stats.int += val; break;
+    case 'vit': stats.vit += val; stats.maxHp += val * 2; break;
+    case 'wis': stats.wis += val; break;
     case 'hp': stats.maxHp += val; break;
     case 'armor': stats.armor += val; break;
     case 'physDmgPct': stats.physDmgPct += val / 100; break;
@@ -584,12 +633,22 @@ function scaledAffix(affix, mult) {
 }
 
 function applyItemStats(stats, item) {
-  const m = itemEnhanceMult(item);
+  const m = itemStatMult(item);
+  const am = itemAffixStatMult(item);
+  const em = itemEnhanceMult(item);
   if (item.baseDamage) stats.damage += Math.round(item.baseDamage * m);
   if (item.armor) stats.armor += Math.round(item.armor * m);
-  if (item.attackSpeed) stats.attackSpeed += item.attackSpeed * m;
-  for (const affix of item.affixes || []) applyAffixToStats(stats, scaledAffix(affix, m));
-  if (item.exclusiveAffix) applyAffixToStats(stats, scaledAffix(item.exclusiveAffix, m));
+  if (item.attackSpeed) stats.attackSpeed += item.attackSpeed * em;
+  for (const affix of item.affixes || []) applyAffixToStats(stats, scaledAffix(affix, am));
+  if (item.exclusiveAffix) applyAffixToStats(stats, scaledAffix(item.exclusiveAffix, am));
+}
+
+function mergeSkillMap(dst, src, mode) {
+  if (!src || !dst) return;
+  for (const [id, val] of Object.entries(src)) {
+    if (!id || !val) continue;
+    dst[id] = mode === 'max' ? Math.max(dst[id] || 0, val) : (dst[id] || 0) + val;
+  }
 }
 
 function applySetBonuses(stats, equipment) {
@@ -625,6 +684,9 @@ function applySetBonuses(stats, equipment) {
         if (bonus.lifeRegen) stats.lifeRegen += bonus.lifeRegen;
         if (bonus.resRegenPct) stats.resRegenPct += bonus.resRegenPct;
         if (bonus.killHeal) stats.killHeal += bonus.killHeal;
+        if (bonus.skillGrant) mergeSkillMap(stats.skillGrant, bonus.skillGrant, 'max');
+        if (bonus.skillDmg) mergeSkillMap(stats.skillDmg, bonus.skillDmg, 'add');
+        if (bonus.skillCostPct) mergeSkillMap(stats.skillCostPct, bonus.skillCostPct, 'add');
       }
     }
   }
@@ -638,7 +700,7 @@ function calcDPS(hero) {
   const critMod = 1 + stats.critRate * (stats.critDmg - 1);
   let dps = baseDmg * critMod / stats.attackInterval;
 
-  const equipped = hero.equippedSkills || [];
+  const equipped = new Set([...(hero.equippedSkills || []), ...Object.keys(stats.skillGrant || {})]);
   for (const skillId of equipped) {
     const skill = SKILLS[hero.charId]?.[skillId];
     if (!skill || skill.type === 'passive' || skill.type === 'aura') continue;
@@ -690,6 +752,7 @@ function calcDamage(hero, monster, skill = null) {
     if (skill.id === 'fistOfHeavens' && (stats.fohExtra || 0) > 0) skillMult *= 1 + stats.fohExtra;
     if (skill.id === 'fistOfHeavens' && (monster.race === 'demon')) skillMult *= 1.2;
     if (skill.id === 'holyBolt' && (monster.race === 'undead' || monster.race === 'demon')) skillMult *= 1.15;
+    if ((stats.skillDmg?.[skill.id] || 0) > 0) skillMult *= 1 + stats.skillDmg[skill.id];
   }
 
   let dmgBonus = stats.physDmgPct;
@@ -750,14 +813,24 @@ function goblinSpawnChance(clearFactor = 0) {
   return 0.01 + Math.min(0.07, Math.max(0, clearFactor) * 0.022);
 }
 
-function createTreasureGoblin(map) {
+function applyWorldMonsterMult(m, mult) {
+  const w = Number(mult) || 1;
+  if (!m || w === 1) return m;
+  m.hp = Math.max(1, Math.floor(m.hp * w));
+  m.maxHp = Math.max(1, Math.floor((m.maxHp || m.hp) * w));
+  m.damage = Math.max(1, Math.floor(m.damage * w));
+  if (m.armor) m.armor = Math.floor(m.armor * w);
+  return m;
+}
+
+function createTreasureGoblin(map, opts = {}) {
   const level = map.levelMin + Math.floor(Math.random() * (map.levelMax - map.levelMin + 1));
   const ms = monsterStats(level);
   const t = MONSTER_TYPES.goblin;
   const hp = Math.floor(ms.hp * t.hp);
   const piles = 5 + Math.floor(Math.random() * 4);
   const items = 4 + Math.floor(Math.random() * 4);
-  return {
+  const gob = {
     name: '宝藏哥布林',
     level,
     hp, maxHp: hp,
@@ -780,6 +853,7 @@ function createTreasureGoblin(map) {
     attackRange: 0.7,
     moveSpeed: 3.55,
   };
+  return applyWorldMonsterMult(gob, opts.worldMult);
 }
 
 function createMonster(map, opts = {}) {
@@ -788,16 +862,27 @@ function createMonster(map, opts = {}) {
     const boss = BOSSES[bossId];
     const kind = forceRareBoss ? 'rareBoss' : (boss.type || 'actBoss');
     const t = MONSTER_TYPES[kind] || MONSTER_TYPES.actBoss;
-    const hp = Math.floor(boss.hp * (forceRareBoss ? 1.4 : 1));
-    return {
+    const nativeLv = Math.max(1, boss.level || 1);
+    const mapLv = map
+      ? Math.round(((map.levelMin || nativeLv) + (map.levelMax || nativeLv)) / 2)
+      : nativeLv;
+    const from = monsterStats(nativeLv);
+    const to = monsterStats(mapLv);
+    const hpScale = to.hp / Math.max(1, from.hp);
+    const dmgScale = to.damage / Math.max(1, from.damage);
+    const armScale = to.armor / Math.max(1, from.armor || 1);
+    const hp = Math.floor(boss.hp * hpScale * (forceRareBoss ? 1.4 : 1));
+    return applyWorldMonsterMult({
       name: forceRareBoss ? `稀有·${boss.name}` : boss.name,
-      level: boss.level, hp, maxHp: hp, damage: Math.floor(boss.damage * (forceRareBoss ? 1.25 : 1)),
-      armor: boss.armor, resistances: { ...boss.resistances },
+      level: mapLv, hp, maxHp: hp,
+      damage: Math.floor(boss.damage * dmgScale * (forceRareBoss ? 1.25 : 1)),
+      armor: Math.floor(boss.armor * armScale),
+      resistances: { ...boss.resistances },
       isBoss: true, bossId, kind, race: boss.race, phase: 1,
       eliteAffixes: forceRareBoss ? rollEliteAffixes(2) : [],
       iso: { x: 8.2, y: 4.2 }, attackTimer: 1.8,
       ranged: false, attackRange: 1.5, moveSpeed: 1.8,
-    };
+    }, opts.worldMult);
   }
 
   const kind = opts.forceKind || rollKind(clearFactor);
@@ -833,7 +918,12 @@ function createMonster(map, opts = {}) {
   let name = prefix ? `${prefix} ${mdef.name}` : mdef.name;
   if (kind === 'hidden') name = `隐藏·${mdef.name}`;
   if (ranged) dmg *= 0.82;
-  return {
+  if (map.isRift) {
+    const diff = riftDifficultyMult(map.riftFloor);
+    hp *= diff;
+    dmg *= diff;
+  }
+  return applyWorldMonsterMult({
     name, level,
     hp: Math.floor(hp), maxHp: Math.floor(hp),
     damage: Math.floor(dmg), armor: ms.armor,
@@ -846,7 +936,7 @@ function createMonster(map, opts = {}) {
     ranged,
     attackRange: ranged ? 4.4 + Math.random() * 0.6 : 1.15,
     moveSpeed: ranged ? 1.55 : 2.25,
-  };
+  }, opts.worldMult);
 }
 
 function getSetStatus(equipment) {
@@ -982,15 +1072,6 @@ function expPerHour(hero, map) {
 }
 
 function expLevelInfo(heroLevel, contentLevel) {
-  const d = (heroLevel || 1) - (contentLevel || 1);
-  if (d >= 6) {
-    const mult = Math.max(0.05, Math.round((1 - (d - 5) * 0.12) * 100) / 100);
-    return { mult, kind: 'high', label: `经验惩罚（过高 −${Math.round((1 - mult) * 100)}%）` };
-  }
-  if (d <= -6) {
-    const mult = Math.max(0.2, Math.round((1 - (-d - 5) * 0.08) * 100) / 100);
-    return { mult, kind: 'low', label: `经验惩罚（过低 −${Math.round((1 - mult) * 100)}%）` };
-  }
   return { mult: 1, kind: '', label: '' };
 }
 
@@ -1034,17 +1115,26 @@ function makeRiftMap(floor) {
   };
 }
 
-function createRiftGuardian(map) {
+function createRiftGuardian(map, opts = {}) {
   const f = Math.max(1, map?.riftFloor || 1);
   const baal = BOSSES.baal;
-  const hp = Math.floor(baal.hp * 1.08 * Math.pow(1.22, f - 1));
-  const dmg = Math.floor(baal.damage * 1.08 * Math.pow(1.14, f - 1));
-  return {
+  const diff = riftDifficultyMult(f);
+  const nativeLv = 88 + (f - 1) * 6;
+  const level = map
+    ? Math.round(((map.levelMin || nativeLv) + (map.levelMax || nativeLv)) / 2)
+    : nativeLv;
+  const from = monsterStats(nativeLv);
+  const to = monsterStats(level);
+  const hpScale = to.hp / Math.max(1, from.hp);
+  const dmgScale = to.damage / Math.max(1, from.damage);
+  const hp = Math.floor(baal.hp * 1.08 * diff * hpScale);
+  const dmg = Math.floor(baal.damage * 1.08 * diff * dmgScale);
+  return applyWorldMonsterMult({
     name: `秘境守护者`,
-    level: 88 + (f - 1) * 6,
+    level,
     hp, maxHp: hp,
     damage: dmg,
-    armor: Math.floor(baal.armor * (1 + (f - 1) * 0.06)),
+    armor: Math.floor(baal.armor * diff * (to.armor / Math.max(1, from.armor || 1))),
     resistances: { ...(baal.resistances || {}) },
     isBoss: true,
     riftBoss: true,
@@ -1058,7 +1148,7 @@ function createRiftGuardian(map) {
     attackRange: 1.55,
     moveSpeed: 1.85,
     exp: 120 + f * 18,
-  };
+  }, opts.worldMult);
 }
 
 function getMap(id) {

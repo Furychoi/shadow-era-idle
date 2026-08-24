@@ -58,7 +58,7 @@ let mapActFollow = true;
 let knownMapUnlocks = null;
 const ACT_TAB_NAMES = { 1: '一章', 2: '二章', 3: '三章', 4: '四章', 5: '五章', 6: '秘境' };
 const INV_PAGE = 24;
-const ATTR_PAGES = ['基础', '战斗', '防御'];
+const ATTR_PAGES = ['效率', '属性基础', '属性战斗', '属性防御'];
 let townOpen = false;
 let townBuilding = 'hall';
 let selTownUid = null;
@@ -68,13 +68,13 @@ let selSkillId = null;
 
 function shownAffix(item, a) {
   if (!a) return a;
-  const m = itemEnhanceMult(item);
+  const m = itemAffixStatMult(item);
   if (m === 1) return a;
   return { ...a, value: Math.round(a.value * m * 1000) / 1000 };
 }
 
 function shownBase(item, n) {
-  return Math.round((n || 0) * itemEnhanceMult(item));
+  return Math.round((n || 0) * itemStatMult(item));
 }
 
 function salvageSum(items) {
@@ -128,6 +128,12 @@ function enhanceBtnHtml(item) {
   return payActionHtml('enhance', item.uid, `强化 ${lv}/10`, enhanceCost(item));
 }
 
+function trainBonusText(def, lv = 1) {
+  const v = (lv || 0) * def.per;
+  if (def.unit === '%') return `+${Math.round(v * 1000) / 10}%`;
+  return `+${Math.round(v * 10) / 10}${def.unit || ''}`;
+}
+
 function trainPanelHtml(hero) {
   ensureTrain(hero);
   const mats = ensureMats(gameState);
@@ -135,14 +141,14 @@ function trainPanelHtml(hero) {
   const rows = TRAIN_DEFS.map((def) => {
     const unlocked = !!hero.train.unlocked[def.id];
     const lv = hero.train.lv[def.id] || 0;
-    const bonus = unlocked ? Math.round(lv * def.per * 1000) / 10 : 0;
+    const cap = def.max || TRAIN_MAX;
     const needHall = def.hall || 1;
     const hallOk = hall >= needHall;
     if (!unlocked) {
       if (!hallOk) {
         return `<div class="train-card locked-hall">
           <div class="train-card-h"><span>${def.name}</span><span class="hall-gate">议事厅条件不满足</span></div>
-          <div class="hint">${def.desc} · 每级 +${Math.round(def.per * 1000) / 10}${def.unit}，上限 ${def.max} 级</div>
+          <div class="hint">${def.desc} · 每级 ${trainBonusText(def, 1)}，上限 ${cap} 级</div>
           <p class="hall-gate-note">需议事厅 ${needHall} 级（当前 ${hall} 级）</p>
           <div class="enhance-row">
             <button type="button" class="btn-small lack" data-act="train-unlock" data-uid="${def.id}">议事厅条件不满足</button>
@@ -151,14 +157,14 @@ function trainPanelHtml(hero) {
       }
       return `<div class="train-card">
         <div class="train-card-h"><span>${def.name}</span><span>未解锁</span></div>
-        <div class="hint">${def.desc} · 每级 +${Math.round(def.per * 1000) / 10}${def.unit}，上限 ${def.max} 级</div>
-        ${payActionHtml('train-unlock', def.id, '解锁', def.unlock)}
+        <div class="hint">${def.desc} · 每级 ${trainBonusText(def, 1)}，上限 ${cap} 级</div>
+        ${payActionHtml('train-unlock', def.id, '解锁', trainUnlockCost(def))}
       </div>`;
     }
-    const maxed = lv >= def.max;
+    const maxed = lv >= cap;
     const cost = maxed ? null : trainLevelCost(def, lv);
     return `<div class="train-card">
-      <div class="train-card-h"><span>${def.name} ${lv}/${def.max}</span><span>+${bonus}${def.unit}</span></div>
+      <div class="train-card-h"><span>${def.name} ${lv}/${cap}</span><span>${trainBonusText(def, lv)}</span></div>
       <div class="hint">${def.desc}</div>
       ${maxed
         ? '<p class="hint">已达上限</p>'
@@ -191,12 +197,12 @@ function setCombatState(cs) {
 function renderAll() {
   if (!gameState || !getActiveHero(gameState)) return;
   try {
-    renderHeroPanel();
+  renderHeroPanel();
     renderCombatHud();
-    renderStatsPanel();
-    renderLog();
-    renderMapSelect();
-    checkOfflineReward();
+  renderStatsPanel();
+  renderLog();
+  renderMapSelect();
+  checkOfflineReward();
     syncTownButton();
   } catch (err) {
     console.error('[ui]', err);
@@ -231,28 +237,26 @@ function bindEvents() {
   });
   document.getElementById('town-overlay')?.addEventListener('click', onTownClick);
   document.getElementById('town-overlay')?.addEventListener('mouseover', (e) => {
-    if (!canHoverPeek()) return;
+    if (!canHoverPeek() || tipPinned) return;
     const el = e.target.closest('[data-inv], [data-wh]');
     if (!el || el.contains(e.relatedTarget)) return;
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(() => {
-      if (tipPinned) return;
       showPeekTip(el);
     }, 200);
   });
   document.getElementById('town-overlay')?.addEventListener('mouseout', (e) => {
-    if (!canHoverPeek()) return;
+    if (!canHoverPeek() || tipPinned) return;
     const el = e.target.closest('[data-inv], [data-wh]');
     if (!el) return;
     const to = e.relatedTarget;
     if (to && (el.contains(to) || to.closest?.('#item-tip'))) return;
-    clearTimeout(hoverTimer);
-    if (!tipPinned) hideItemTip();
+    scheduleHideItemTip();
   });
   document.getElementById('btn-reset-save')?.addEventListener('click', () => {
     if (!confirm('将清除本地存档并重新开始（等级、地图、解锁、背包全部还原），确定？')) return;
     resetSave();
-    location.reload();
+    location.replace(`${location.pathname}?v=89&reset=${Date.now()}`);
   });
   const fillJunkSelect = () => {
     const sel = document.getElementById('junk-q');
@@ -296,6 +300,9 @@ function bindEvents() {
     e.stopPropagation();
     if (autosellOpen) closeAutosellPop();
     else openAutosellPop();
+  });
+  document.getElementById('btn-bag-expand')?.addEventListener('click', () => {
+    showBagExpandModal();
   });
   document.getElementById('autosell-pop')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -404,28 +411,27 @@ function bindEvents() {
   document.querySelector('.combat-panel')?.addEventListener('click', onCampClick);
   document.getElementById('item-tip')?.addEventListener('mouseenter', () => clearTimeout(hoverTimer));
   document.getElementById('item-tip')?.addEventListener('mouseleave', () => {
-    if (!tipPinned) hideItemTip();
+    if (tipPinned) return;
+    if (canHoverPeek()) scheduleHideItemTip();
   });
   const camp = document.getElementById('camp-panel');
   camp?.addEventListener('mouseover', (e) => {
-    if (!canHoverPeek()) return;
+    if (!canHoverPeek() || tipPinned) return;
     const el = e.target.closest('[data-inv], [data-slot], [data-set-tip]');
     if (!el) return;
     if (el.contains(e.relatedTarget)) return;
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(() => {
-      if (tipPinned) return;
       showPeekTip(el);
     }, 200);
   });
   camp?.addEventListener('mouseout', (e) => {
-    if (!canHoverPeek()) return;
+    if (!canHoverPeek() || tipPinned) return;
     const el = e.target.closest('[data-inv], [data-slot], [data-set-tip]');
     if (!el) return;
     const to = e.relatedTarget;
     if (to && (el.contains(to) || to.closest?.('#item-tip'))) return;
-    clearTimeout(hoverTimer);
-    if (!tipPinned) hideItemTip();
+    scheduleHideItemTip();
   });
   const modal = document.getElementById('modal');
   modal?.addEventListener('mouseover', (e) => {
@@ -445,7 +451,7 @@ function bindEvents() {
   });
   const combatSkills = document.getElementById('combat-skills');
   combatSkills?.addEventListener('mouseover', (e) => {
-    if (!canHoverPeek()) return;
+    if (!canHoverPeek() || tipPinned) return;
     const el = e.target.closest('[data-skill-tip]');
     if (!el || el.contains(e.relatedTarget)) return;
     clearTimeout(hoverTimer);
@@ -458,9 +464,7 @@ function bindEvents() {
     const to = e.relatedTarget;
     if (to && (el.contains(to) || to.closest?.('#item-tip'))) return;
     clearTimeout(hoverTimer);
-    hoverTimer = setTimeout(() => {
-      if (!tipPinned && !document.getElementById('item-tip')?.matches(':hover')) hideItemTip();
-    }, 280);
+    if (canHoverPeek() && !tipPinned) scheduleHideItemTip();
   });
   document.getElementById('inv-prev')?.addEventListener('click', () => {
     invPage = Math.max(0, invPage - 1);
@@ -484,6 +488,22 @@ function bindEvents() {
     if (!e.target.closest('#item-tip, [data-inv], [data-slot], [data-skill-tip], [data-set-tip], #inv-bulk-bar, #btn-inv-multi')) hideItemTip();
   });
   document.getElementById('map-select')?.addEventListener('click', (e) => {
+    const diffTab = e.target.closest('.diff-tab');
+    if (diffTab) {
+      const r = setWorldDiff(gameState, diffTab.dataset.diff);
+      if (!r.ok) {
+        addLog({ type: 'info', text: r.reason || '无法切换难度' });
+        return;
+      }
+      if (!r.same) {
+        knownMapUnlocks = null;
+        resetFieldForZone();
+        addLog({ type: 'info', text: `难度切换为${r.diff.name}（怪物 Lv.${r.diff.lvMin}–${r.diff.lvMax} · ×${r.diff.monsterMult} · 掉落 ×${r.diff.lootMult}）` });
+        lastCampSig = '';
+        renderAll();
+      }
+      return;
+    }
     const tab = e.target.closest('.act-tab');
     if (tab) {
       mapActTab = Number(tab.dataset.act) || 1;
@@ -505,13 +525,7 @@ function bindEvents() {
       gameState.mapsEntered.rift = true;
       mapActTab = 6;
       mapActFollow = true;
-      if (combatState) {
-        combatState.killCount = hero.riftProgress || 0;
-        combatState.bossPity = 0;
-        combatState.monsters = [];
-        combatState.target = null;
-        combatState.spawnTimer = 0.2;
-      }
+      resetFieldForZone();
       addLog({ type: 'info', text: `进入小秘境 ${hero.riftFloor} 层` });
       renderAll();
       setMobileView('combat');
@@ -528,16 +542,17 @@ function bindEvents() {
     gameState.mapsEntered[map.id] = true;
     mapActTab = map.act;
     mapActFollow = true;
-    if (combatState) {
-      combatState.killCount = gameState.mapKills?.[map.id] || 0;
-      combatState.bossPity = 0;
-      combatState.monsters = [];
-      combatState.target = null;
-      combatState.spawnTimer = 0.2;
-    }
+    resetFieldForZone();
     renderAll();
     setMobileView('combat');
   });
+  const autoNext = document.getElementById('chk-auto-next-map');
+  if (autoNext) {
+    autoNext.checked = gameState.autoNextMap !== false;
+    autoNext.addEventListener('change', () => {
+      gameState.autoNextMap = !!autoNext.checked;
+    });
+  }
 }
 
 function filteredBagItems() {
@@ -635,6 +650,7 @@ function onCampClick(e) {
     selInvUids = new Set();
     lastCampSig = '';
     renderHeroPanel();
+    clearTimeout(hoverTimer);
     tipPinned = true;
     showItemTip(document.querySelector(`[data-slot="${selSlot}"]`));
     return;
@@ -644,6 +660,7 @@ function onCampClick(e) {
     pickBagItem(row.dataset.inv, e);
     lastCampSig = '';
     renderHeroPanel();
+    clearTimeout(hoverTimer);
     tipPinned = true;
     showItemTip(document.querySelector(`[data-inv="${CSS.escape(selInvUid || '')}"]`));
     return;
@@ -666,7 +683,7 @@ function runCampAct(act, uid, slot) {
     gameState.inventory.splice(idx, 1);
     if (r.prev) gameState.inventory.push(r.prev);
     if (r.extra) gameState.inventory.push(r.extra);
-    addLog({ type: 'loot', text: r.extra ? `装备 ${item.name}（卸下 ${r.extra.name}）` : `装备 ${item.name}` });
+    addLog({ type: 'loot', text: r.extra ? `装备 ${itemDisplayName(item)}（卸下 ${itemDisplayName(r.extra)}）` : `装备 ${itemDisplayName(item)}` });
     selInvUid = null;
     selInvUids = new Set();
     selSlot = r.dest;
@@ -674,7 +691,7 @@ function runCampAct(act, uid, slot) {
     const r = unequipItem(gameState, hero, slot || selSlot);
     if (!r.ok) addLog({ type: 'info', text: r.reason });
     else {
-      addLog({ type: 'loot', text: r.toWarehouse ? `卸下 ${r.item.name}（已存入仓库）` : `卸下 ${r.item.name}` });
+      addLog({ type: 'loot', text: r.toWarehouse ? `卸下 ${itemDisplayName(r.item)}（已存入仓库）` : `卸下 ${itemDisplayName(r.item)}` });
       selInvUid = r.toWarehouse ? null : r.item.uid;
     }
   } else if (act === 'sell') {
@@ -699,7 +716,7 @@ function runCampAct(act, uid, slot) {
     const r = stashToWarehouse(gameState, uid);
     if (!r.ok) addLog({ type: 'info', text: r.reason || '无法存仓' });
     else {
-      addLog({ type: 'loot', text: `存入仓库 ${r.item.name}` });
+      addLog({ type: 'loot', text: `存入仓库 ${itemDisplayName(r.item)}` });
       selInvUid = null;
     }
   } else if (act === 'salvage') {
@@ -738,6 +755,15 @@ function runCampAct(act, uid, slot) {
     invPage = 0;
   } else if (act === 'cmpring') {
     selSlot = uid === 'ring2' ? 'ring2' : 'ring1';
+  } else if (act === 'potion-up-hp' || act === 'potion-up-mana') {
+    const kind = act === 'potion-up-mana' ? 'mana' : 'hp';
+    const r = upgradePotionTier(gameState, kind);
+    if (!r.ok) addLog({ type: 'info', text: failActText(r.reason, '升级') });
+    else addLog({ type: 'loot', text: `${kind === 'mana' ? '魔力' : '生命'}药水升至 ${r.tier.name}（${r.tier.lv} 级）` });
+    lastCampSig = '';
+    renderAll();
+    if (document.getElementById('modal')?.classList.contains('open')) showShopModal();
+    return;
   } else if (act === 'learn') {
     const r = allocateSkillPoint(hero, uid, gameState);
     if (r) addLog({ type: 'skill', text: `学习 ${SKILLS[hero.charId][uid].name}${r.cost ? `（-${formatCostText(r.cost)}）` : ''}` });
@@ -763,6 +789,91 @@ function runCampAct(act, uid, slot) {
   } else hideItemTip();
 }
 
+function expandCostRowsHtml(cost) {
+  const labels = { gold: '金币', metal: '金属', cloth: '布料', crystal: '水晶' };
+  return ['gold', 'metal', 'cloth', 'crystal'].map((key) => {
+    const need = Math.floor(cost[key] || 0);
+    if (!need) return '';
+    const have = ownedAmount(key);
+    const ok = have >= need;
+    return `<div class="expand-cost-row">
+      <span>${labels[key]}</span>
+      <span class="cost-need ${ok ? 'ok' : 'short'}">持有 ${formatCompactNum(have)} / 需要 ${formatCompactNum(need)}</span>
+    </div>`;
+  }).join('');
+}
+
+function showBagExpandModal() {
+  const left = bagExpandsLeft(gameState);
+  if (!left) {
+    showModal('背包扩容', `<p>背包已扩到上限（${getInvCap(gameState)} 格）。</p>`);
+    return;
+  }
+  const cost = bagExpandCost(gameState);
+  const lack = canPayCost(gameState, cost);
+  const cap = getInvCap(gameState);
+  showModal('背包扩容', `
+    <p>扩容 +${BAG_EXPAND_SLOTS} 格 · 还可扩 ${left} 次</p>
+    <p class="hint">当前 ${gameState.inventory.length}/${cap}，扩容后容量 ${cap + BAG_EXPAND_SLOTS}</p>
+    <div class="expand-cost-list">${expandCostRowsHtml(cost)}</div>
+    ${lack ? `<p class="bag-expand-hint">材料不足</p>` : '<button type="button" class="btn-primary" id="confirm-bag-expand">确认扩容</button>'}
+  `);
+  document.getElementById('confirm-bag-expand')?.addEventListener('click', () => {
+    const r = buyBagExpand(gameState);
+    if (!r.ok) {
+      addLog({ type: 'info', text: r.reason || '无法扩容' });
+      showBagExpandModal();
+      return;
+    }
+    addLog({ type: 'loot', text: `背包扩容 +${BAG_EXPAND_SLOTS}（${gameState.inventory.length}/${getInvCap(gameState)}）· ${formatCostText(r.cost)}` });
+    closeModal();
+    lastCampSig = '';
+    renderAll();
+  });
+}
+
+function syncBagExpandBtn() {
+  const btn = document.getElementById('btn-bag-expand');
+  const hint = document.getElementById('bag-expand-hint');
+  if (!btn || !gameState) return;
+  const left = bagExpandsLeft(gameState);
+  btn.classList.remove('ready', 'lack');
+  if (!left) {
+    btn.textContent = '已满';
+    btn.disabled = true;
+    btn.title = '背包容量已达上限';
+    if (hint) hint.hidden = true;
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = '扩容';
+  const cost = bagExpandCost(gameState);
+  const lack = canPayCost(gameState, cost);
+  if (lack) {
+    btn.classList.add('lack');
+    btn.title = '材料不足，点击查看需求';
+    if (hint) {
+      hint.hidden = false;
+      hint.textContent = '材料不足';
+    }
+  } else {
+    btn.classList.add('ready');
+    btn.title = `还可扩 ${left} 次`;
+    if (hint) hint.hidden = true;
+  }
+}
+
+function resetFieldForZone() {
+  const hero = getActiveHero(gameState);
+  if (!combatState || !hero) return;
+  if (hero.currentMap === 'rift') combatState.killCount = hero.riftProgress || 0;
+  else combatState.killCount = gameState.mapKills?.[hero.currentMap] || 0;
+  combatState.bossPity = 0;
+  combatState.monsters = [];
+  combatState.target = null;
+  combatState.spawnTimer = 0.2;
+}
+
 function campSig() {
   const hero = getActiveHero(gameState);
   const eq = SLOTS.map(s => hero.equipment[s]?.uid || '').join(',');
@@ -770,15 +881,18 @@ function campSig() {
   const enh = SLOTS.map(s => hero.equipment[s]?.enhance || 0).join(',');
   const mats = ensureMats(gameState);
   const tr = JSON.stringify(hero.train || {});
-  return [hero.charId, hero.level, hero.skillPoints, JSON.stringify(hero.skillLevels), eq, inv, selSlot, selInvUid, [...selInvUids].sort().join('.'), invMultiMode ? 'm' : '', gameState.invFilter || 'all', JSON.stringify(normalizeInvSort(gameState.invSort)), invPage, gameState.autoSell?.enabled ? '1' : '0', gameState.autoSell?.maxQuality || '', gameState.autoSell?.action || '', autosellOpen ? 'p' : '', enh, mats.metal, mats.cloth, mats.crystal, tr].join('|');
+  return [hero.charId, hero.level, hero.skillPoints, JSON.stringify(hero.skillLevels), eq, inv, selSlot, selInvUid, [...selInvUids].sort().join('.'), invMultiMode ? 'm' : '', gameState.invFilter || 'all', JSON.stringify(normalizeInvSort(gameState.invSort)), invPage, gameState.autoSell?.enabled ? '1' : '0', gameState.autoSell?.maxQuality || '', gameState.autoSell?.action || '', autosellOpen ? 'p' : '', enh, mats.metal, mats.cloth, mats.crystal, tr, gameState.gold, gameState.bagExpands || 0, gameState.diffId || 'normal'].join('|');
 }
 
 function renderHeroPanel() {
   const hero = getActiveHero(gameState);
   const charDef = CHARACTERS[hero.charId];
   const stats = calcHeroStats(hero, { useCombatBuffs: true, buffs: combatState?.buffs });
-  const map = getCurrentMap(hero);
-  document.getElementById('hero-name').textContent = `${charDef.name}  Lv.${hero.level}`;
+  const map = getCurrentMap(hero, gameState);
+  const power = heroGearScore(hero);
+  const nameEl = document.getElementById('hero-name');
+  nameEl.innerHTML = `${charDef.name} Lv.${hero.level} <span class="hero-score">总评分：${formatCompactNum(power)}</span>`;
+  nameEl.title = `总评分 ${power.toLocaleString()}`;
   const skillBtn = document.getElementById('btn-skills');
   if (skillBtn) {
     const sp = hero.skillPoints || 0;
@@ -827,9 +941,10 @@ function renderHeroPanel() {
     resBar.style.background = `linear-gradient(90deg, ${stats.resColor}88, ${stats.resColor})`;
     resText.textContent = `${stats.resName} ${Math.floor(hero.currentRes || 0)} / ${stats.maxRes}`;
   }
-  document.getElementById('current-map-name').textContent = map.name;
+  document.getElementById('current-map-name').textContent = `${map.name} · ${getWorldDiff(gameState).name}`;
   document.getElementById('map-level-range').textContent = `Lv.${map.levelMin}–${map.levelMax} · Act ${map.act}${pen.label ? ` · ${pen.label}` : ''}`;
   document.getElementById('inv-count').textContent = `${gameState.inventory.length}/${getInvCap(gameState)}`;
+  syncBagExpandBtn();
   const st = document.getElementById('hero-status');
   if (st) {
     if (hero.isDead) {
@@ -998,13 +1113,15 @@ function renderCampAttrs(hero) {
   const el = document.getElementById('camp-attrs');
   if (!el) return;
   const stats = calcHeroStats(hero, { useCombatBuffs: true, buffs: combatState?.buffs });
-  const map = getCurrentMap(hero);
+  const map = getCurrentMap(hero, gameState);
   const pages = [
+    null,
     [
       ['力量', stats.str],
       ['敏捷', stats.agi],
       ['智力', stats.int],
       ['体力', stats.vit],
+      ['智慧', Math.floor(stats.wis || 0)],
       ['生命', stats.maxHp],
       [stats.resName, `${Math.floor(hero.currentRes || 0)} / ${stats.maxRes}`],
       [`${stats.resName}回复`, `${stats.resRegen}/s`],
@@ -1036,11 +1153,31 @@ function renderCampAttrs(hero) {
       ['毒伤', `${Math.round((stats.poisonDmgPct || 0) * 100)}%`],
     ],
   ];
-  attrPage = ((attrPage % pages.length) + pages.length) % pages.length;
-  const nameEl = document.getElementById('attr-page-name');
+  attrPage = ((attrPage % ATTR_PAGES.length) + ATTR_PAGES.length) % ATTR_PAGES.length;
+  const titleEl = document.getElementById('attr-page-title');
   const labelEl = document.getElementById('attr-page-label');
-  if (nameEl) nameEl.textContent = ATTR_PAGES[attrPage];
-  if (labelEl) labelEl.textContent = `${attrPage + 1}/${pages.length}`;
+  if (titleEl) titleEl.textContent = '效率｜属性';
+  if (labelEl) labelEl.textContent = `${attrPage + 1}/${ATTR_PAGES.length}`;
+  if (attrPage === 0) {
+    const cell = (label, value, id) =>
+      `<div class="eff-item"><span>${label}</span><span${id ? ` id="${id}"` : ''}>${value}</span></div>`;
+    el.innerHTML = `<div class="eff-strip">
+      ${cell('DPS', calcDPS(hero).toLocaleString())}
+      ${cell('EHP', calcEHP(hero, (map.levelMin + map.levelMax) / 2).toLocaleString())}
+      ${cell('击杀/分', killsPerMinute(hero, map), 'stat-kpm')}
+      ${cell('经验/时', expPerHour(hero, map).toLocaleString(), 'stat-eph')}
+      ${cell('攻速', `${stats.attacksPerSec.toFixed(2)}/s`)}
+      ${cell('攻击距离', stats.attackRange.toFixed(1))}
+      ${cell('暴击', `${Math.round(stats.critRate * 100)}%`)}
+      ${cell('护甲', stats.armor)}
+      ${cell(stats.resName, `${Math.floor(hero.currentRes || 0)}/${stats.maxRes}`)}
+      ${cell('生命药', gameState.hpPotions || 0, 'stat-hp-pots')}
+      ${cell('魔力药', gameState.manaPotions || 0, 'stat-mana-pots')}
+      ${cell('技能点', hero.skillPoints || 0)}
+    </div>`;
+    renderStatsPanel();
+    return;
+  }
   el.innerHTML = pages[attrPage].map(([k, v]) =>
     `<div class="attr-row"><span>${k}</span><span class="attr-val">${v}</span></div>`
   ).join('');
@@ -1052,7 +1189,7 @@ function itemIconHtml(item, extraClass = '', blocked = false) {
   }
   const q = QUALITY[item.quality] || QUALITY.normal;
   const glyph = inferItemIcon(item);
-  const title = blocked ? `不可装备：${blocked === true ? '' : blocked}` : item.name;
+  const title = blocked ? `不可装备：${blocked === true ? '' : blocked}` : itemDisplayName(item);
   const cls = itemClassId(item);
   const classMark = cls && CHARACTERS[cls]
     ? `<span class="class-mark">${CHARACTERS[cls].icon}</span>` : '';
@@ -1063,15 +1200,36 @@ function itemIconHtml(item, extraClass = '', blocked = false) {
   </div>`;
 }
 
+function pointerOverTipOrAnchor() {
+  const tip = document.getElementById('item-tip');
+  if (tip && !tip.hidden && tip.matches(':hover')) return true;
+  if (lastTipAnchor?.isConnected && lastTipAnchor.matches?.(':hover')) return true;
+  return false;
+}
+
+function scheduleHideItemTip() {
+  if (tipPinned) return;
+  clearTimeout(hoverTimer);
+  hoverTimer = setTimeout(() => {
+    if (tipPinned || pointerOverTipOrAnchor()) return;
+    hideItemTip();
+  }, 160);
+}
+
 function hideItemTip() {
+  clearTimeout(hoverTimer);
   const tip = document.getElementById('item-tip');
   if (tip) {
     tip.hidden = true;
+    tip.setAttribute('hidden', '');
     tip.classList.remove('wide');
     tip.style.bottom = '';
     tip.style.right = '';
     tip.style.width = '';
+    tip.style.left = '';
+    tip.style.top = '';
   }
+  lastTipAnchor = null;
   tipPinned = false;
 }
 
@@ -1117,7 +1275,8 @@ function showSetPeek(anchor) {
   positionItemTip(anchor);
 }
 
-function showPeekTip(anchor) {
+function showPeekTip(anchor, force = false) {
+  if (tipPinned && !force) return;
   if (anchor?.dataset?.skillTip) {
     showSkillPeek(anchor);
     return;
@@ -1154,7 +1313,7 @@ function skillInspectHtml(skillId) {
   const parts = skillLevelParts(hero, skillId, stats);
   const lvHtml = formatSkillLevelHtml(parts);
   const bonusSrc = skillBonusBreakdown(hero, { useCombatBuffs: true, buffs: combatState?.buffs || {} });
-  const bonusLine = parts.bonus > 0 && parts.base > 0
+  const bonusLine = parts.bonus > 0 && (parts.base > 0 || (parts.grant || 0) > 0)
     ? `<div class="stat-line">额外等级 +${parts.bonus}${bonusSrc.length ? `（${bonusSrc.map(s => `${s.name} +${s.add}`).join('、')}）` : ''}</div>`
     : '';
   const weap = skillWeaponReady(hero, skill);
@@ -1162,7 +1321,7 @@ function skillInspectHtml(skillId) {
   const gate = canLearnSkill(hero, skillId, gameState);
   const learnCost = skillLearnCost(hero, skillId);
   const need = [];
-  if (skill.prereq && !(hero.skillLevels[skill.prereq] > 0)) {
+  if (skill.prereq && !(hero.skillLevels[skill.prereq] > 0) && !(parts.grant > 0)) {
     need.push(`前置 ${SKILLS[hero.charId][skill.prereq]?.name || ''}`);
   }
   if (hero.level < (skill.reqLevel || 1)) need.push(`角色 ${skill.reqLevel} 级`);
@@ -1174,7 +1333,7 @@ function skillInspectHtml(skillId) {
     <div class="stat-line">${skill.desc}</div>
     ${skillEffectLines(hero, skill, parts, stats).map(t => `<div class="skill-eff">${t}</div>`).join('')}
     ${(() => {
-      const cost = skillResCost(hero, skill);
+      const cost = skillResCost(hero, skill, stats);
       const gain = skillResGain(hero, skill);
       if (!cost && !gain) return '';
       const name = stats.resName || '资源';
@@ -1186,7 +1345,7 @@ function skillInspectHtml(skillId) {
     ${skill.reqWeapon ? `<div class="stat-line">武器：${WEAPON_CLASS_NAMES[skill.reqWeapon]}</div>` : ''}
     ${need.length ? `<div class="skill-need">${need.join(' · ')}</div>` : ''}
     ${lv < (skill.maxLevel || 10) ? `<div class="stat-line">下次学习 ${formatCostText(learnCost)} + 技能点 1${!gate.ok && gate.reason ? ` · ${gate.reason}` : ''}</div>` : ''}
-    ${lv > 0 && skill.type !== 'passive' ? `<div class="inspect-actions"><button type="button" class="btn-small" data-act="toggle-skill" data-uid="${skillId}">${skill.type === 'aura' && skill.auraSlot ? (isAuraOn(hero, skillId) ? '当前光环' : '切换光环') : (isSkillEnabled(hero, skillId) ? '停用技能' : '启用技能')}</button></div>` : ''}
+    ${(lv > 0 || (parts.grant || 0) > 0) && skill.type !== 'passive' ? `<div class="inspect-actions"><button type="button" class="btn-small" data-act="toggle-skill" data-uid="${skillId}">${skill.type === 'aura' && skill.auraSlot ? (isAuraOn(hero, skillId) ? '当前光环' : '切换光环') : (isSkillEnabled(hero, skillId) ? '停用技能' : '启用技能')}</button></div>` : ''}
     ${gate.ok ? `<div class="inspect-actions"><button type="button" class="btn-small" data-act="learn" data-uid="${skillId}">投入 1 点（${formatCostText(learnCost)}）</button></div>` : ''}
   `;
 }
@@ -1246,10 +1405,12 @@ function refreshItemTip() {
   const tip = document.getElementById('item-tip');
   if (!tip || tip.hidden || !tipPinned) return;
   const bagItem = selInvUid ? gameState.inventory.find(i => i.uid === selInvUid) : null;
+  const wasWide = tip.classList.contains('wide');
+  const keepPos = !!(tip.style.top || tip.style.bottom);
   if (selInvUids.size > 1) {
     setTipWide(tip, true);
     tip.innerHTML = inspectHtml(hero);
-    positionItemTip(lastTipAnchor);
+    if (!keepPos || wasWide !== tip.classList.contains('wide')) positionItemTip(lastTipAnchor);
     return;
   }
   if (!bagItem && !hero.equipment[selSlot]) {
@@ -1260,7 +1421,7 @@ function refreshItemTip() {
   tip.innerHTML = inspectHtml(hero);
   const anchor = document.querySelector(selInvUid ? `[data-inv="${CSS.escape(selInvUid)}"]` : `[data-slot="${selSlot}"]`) || lastTipAnchor;
   if (anchor) lastTipAnchor = anchor;
-  positionItemTip(lastTipAnchor);
+  if (!keepPos || wasWide !== tip.classList.contains('wide')) positionItemTip(lastTipAnchor);
 }
 
 function renderCampGear() {
@@ -1269,12 +1430,12 @@ function renderCampGear() {
   document.getElementById('equip-slots').innerHTML = DOLL_SLOTS.map(row =>
     row.map(slot => {
       if (!slot) return '<div class="doll-cell blank"></div>';
-      const item = hero.equipment[slot];
+    const item = hero.equipment[slot];
       const wornBlock = slot === 'offhand' && item && equipBlockReason(hero, item);
       return `<div class="doll-cell ${selSlot === slot ? 'sel' : ''} ${wornBlock ? 'blocked' : ''}" data-slot="${slot}">
-        <span class="slot-label">${SLOT_NAMES[slot]}</span>
+      <span class="slot-label">${SLOT_NAMES[slot]}</span>
         ${itemIconHtml(item, '', wornBlock)}
-      </div>`;
+    </div>`;
     }).join('')
   ).join('');
   const sets = getSetStatus(hero.equipment);
@@ -1307,7 +1468,7 @@ function renderCampGear() {
       const blocked = equipBlockReason(hero, item);
       const picked = selInvUids.has(item.uid) ? 'picked' : '';
       const sel = selInvUid === item.uid ? 'sel' : '';
-      cells.push(`<button type="button" class="inv-cell ${sel} ${picked} ${blocked ? 'blocked' : ''} ${item.quality === 'unique' ? 'q-unique' : ''}" data-inv="${item.uid}" title="${blocked ? '不可装备：' + blocked : item.name}">${itemIconHtml(item, '', blocked)}</button>`);
+      cells.push(`<button type="button" class="inv-cell ${sel} ${picked} ${blocked ? 'blocked' : ''} ${item.quality === 'ancientUnique' ? 'q-ancientUnique' : isUniqueItem(item) ? 'q-unique' : ''}" data-inv="${item.uid}" title="${blocked ? '不可装备：' + blocked : itemDisplayName(item)}">${itemIconHtml(item, '', blocked)}</button>`);
     } else {
       cells.push('<div class="inv-cell empty-cell"></div>');
     }
@@ -1320,11 +1481,10 @@ function renderCampGear() {
   const a = gameState.autoSell || {};
   const asBtn = document.getElementById('btn-autosell');
   if (asBtn) {
-    const mode = AUTO_SELL_MODES.find(m => m.id === a.maxQuality);
     asBtn.classList.toggle('on', !!a.enabled);
     asBtn.classList.toggle('off', !a.enabled);
     const verb = a.action === 'salvage' ? '自动分解' : '自动出售';
-    asBtn.textContent = a.enabled ? `${verb} · 开${mode ? ' · ' + mode.name : ''}` : '自动出售 · 关';
+    asBtn.textContent = a.enabled ? `${verb} · 开` : '自动出售 · 关';
   }
   document.getElementById('autosell-pop')?.toggleAttribute('hidden', !autosellOpen);
   document.querySelectorAll('#autosell-opts .as-opt').forEach((btn) => {
@@ -1388,7 +1548,7 @@ function itemCardHtml(item, tag, opts = {}) {
   const body = `
     ${tag ? `<div class="cmp-tag">${tag}</div>` : ''}
     ${itemIconHtml(item, opts.compact ? '' : 'lg', block)}
-    <div class="inspect-name ${item.quality === 'unique' ? 'unique-name' : ''}" style="color:${q.color}">${item.locked ? '锁 ' : ''}${item.quality === 'ancientSet' ? '远古 · ' : ''}${item.name}</div>
+    <div class="inspect-name ${isUniqueItem(item) ? 'unique-name' : ''}" style="color:${q.color}">${item.locked ? '锁 ' : ''}${isAncientItem(item) ? '远古 · ' : ''}${itemDisplayName(item)}</div>
     <div class="quality-tag" style="color:${q.color}">${q.name} · ${SLOT_NAMES[item.slot] || item.slot}${wtxt}${reqTxt} · ${item.itemLevel || 1}级${enhTxt}</div>
     ${block ? `<div class="equip-block">不可装备：${block}</div>` : ''}
     ${gearScoreHtml(item, hero, !!opts.compact, vs)}
@@ -1682,8 +1842,10 @@ function inspectHtml(hero) {
         <button type="button" class="btn-small" data-act="sell-sel" ${free.length ? '' : 'disabled'}>出售 ${formatCompactNum(gold)}金</button>
         <button type="button" class="btn-small" data-act="salvage-sel" ${free.length ? '' : 'disabled'}>${salvageBtnText(free)}</button>
       </div>
+      <div class="inspect-body">
       <p class="hint">锁定 ${locked} 件会跳过。Ctrl/⌘ 点选，Shift 连选本页范围。</p>
-      <div class="inv-affixes">${picked.slice(0, 8).map(i => `${i.locked ? '锁 ' : ''}${i.name}`).join(' · ')}${picked.length > 8 ? ' …' : ''}</div>`;
+      <div class="inv-affixes">${picked.slice(0, 8).map(i => `${i.locked ? '锁 ' : ''}${i.name}`).join(' · ')}${picked.length > 8 ? ' …' : ''}</div>
+      </div>`;
   }
   const bagItem = selInvUid ? gameState.inventory.find(i => i.uid === selInvUid) : null;
   if (bagItem) {
@@ -1708,20 +1870,24 @@ function inspectHtml(hero) {
         ${rerollBtnHtml(bagItem)}
         ${enhanceBtnHtml(bagItem)}
       </div>
+      <div class="inspect-body">
       <div class="d4-cmp">
         ${itemCardHtml(bagItem, '替换', { hero, vs: worn, side: 'new' })}
         ${itemCardHtml(worn, '已装备', { hero, side: 'old' })}
+      </div>
       </div>`;
   }
   let html = '';
   if (worn) {
-    html += `<div class="cmp-row">${itemCardHtml(worn, '已装备', { hero })}</div>
-      <div class="inspect-actions">
+    html += `<div class="inspect-actions">
         <button type="button" class="btn-small" data-act="unequip" data-slot="${selSlot}">卸下</button>
         ${rerollBtnHtml(worn)}
         ${enhanceBtnHtml(worn)}
+      </div>
+      <div class="inspect-body">
+        <div class="cmp-row">${itemCardHtml(worn, '已装备', { hero })}</div>
+        ${worn.setId ? inspectSetHtml(hero, worn.setId) : ''}
       </div>`;
-    if (worn.setId) html += inspectSetHtml(hero, worn.setId);
   } else {
     html += '<p class="hint">空部位。点击背包格子选择装备。</p>';
   }
@@ -1736,7 +1902,7 @@ function renderCombatHud() {
   const hpText = document.getElementById('monster-hp-text');
   const kindEl = document.getElementById('monster-kind');
   const hero = getActiveHero(gameState);
-  const map = getCurrentMap(hero);
+  const map = getCurrentMap(hero, gameState);
   if (!m) {
     name.textContent = '搜寻目标…';
     bar.style.width = '0%';
@@ -1752,12 +1918,12 @@ function renderCombatHud() {
       : m.kind === 'hidden' ? '#c080ff'
       : m.kind === 'riftBoss' ? '#ff7a6a'
       : QUALITY[m.kind === 'rare' ? 'rare' : m.kind === 'elite' ? 'magic' : 'normal']?.color || '#c8c0b0';
-    if (m.isBoss) {
+  if (m.isBoss) {
       const rate = estimateBossWinRate(hero, m);
       document.getElementById('boss-winrate').textContent = `预计通过率 ${rate}%`;
-      document.getElementById('boss-winrate').style.display = 'block';
-    } else {
-      document.getElementById('boss-winrate').style.display = 'none';
+    document.getElementById('boss-winrate').style.display = 'block';
+  } else {
+    document.getElementById('boss-winrate').style.display = 'none';
     }
   }
   const p = mapClearProgress(gameState, map);
@@ -1787,12 +1953,14 @@ function renderCombatHud() {
 
 function combatUsableSkillIds(hero) {
   const tree = SKILLS[hero.charId] || {};
+  const stats = calcHeroStats(hero, { useCombatBuffs: true, buffs: combatState?.buffs });
   const equipped = hero.equippedSkills || [];
   return combatSkillQueue(hero).filter(id => {
     const skill = tree[id];
     if (!skill || (skill.type !== 'active' && skill.type !== 'buff')) return false;
-    if ((hero.skillLevels?.[id] || 0) <= 0) return false;
-    if (equipped.length && skill.type === 'active' && !equipped.includes(id)) return false;
+    if (combatSkillLevel(hero, id, stats) <= 0) return false;
+    const granted = (stats.skillGrant?.[id] || 0) > 0;
+    if (equipped.length && skill.type === 'active' && !equipped.includes(id) && !granted) return false;
     return true;
   });
 }
@@ -1825,7 +1993,7 @@ function renderCombatSkills(hero) {
     const remain = combatState?.skillCooldowns?.[id] || 0;
     const ch = combatState?.channel;
     const channeling = ch?.id === id && (ch.t || 0) > 0;
-    const cost = skillResCost(hero, skill);
+    const cost = skillResCost(hero, skill, stats);
     const resOk = cost <= 0 || (hero.currentRes || 0) >= cost;
     let st = '就绪';
     let cls = 'ready';
@@ -1863,28 +2031,15 @@ function renderCombatSkills(hero) {
 
 function renderStatsPanel() {
   const hero = getActiveHero(gameState);
-  const map = getCurrentMap(hero);
-  const stats = calcHeroStats(hero);
-  document.getElementById('stat-dps').textContent = calcDPS(hero).toLocaleString();
-  document.getElementById('stat-ehp').textContent = calcEHP(hero, (map.levelMin + map.levelMax) / 2).toLocaleString();
-  document.getElementById('stat-kpm').textContent = killsPerMinute(hero, map);
-  document.getElementById('stat-eph').textContent = expPerHour(hero, map).toLocaleString();
-  document.getElementById('stat-aps').textContent = `${stats.attacksPerSec.toFixed(2)}/s`;
-  document.getElementById('stat-range').textContent = stats.attackRange.toFixed(1);
-  document.getElementById('stat-crit').textContent = `${Math.round(stats.critRate * 100)}%`;
-  document.getElementById('stat-armor').textContent = stats.armor;
-  const resLabel = document.getElementById('stat-res-label');
-  const resVal = document.getElementById('stat-res');
-  if (resLabel) resLabel.textContent = stats.resName || '资源';
-  if (resVal) {
-    clampHeroResource(hero, stats);
-    resVal.textContent = `${Math.floor(hero.currentRes || 0)}/${stats.maxRes}`;
-  }
+  const map = getCurrentMap(hero, gameState);
+  const kpm = document.getElementById('stat-kpm');
+  const eph = document.getElementById('stat-eph');
+  if (kpm) kpm.textContent = killsPerMinute(hero, map);
+  if (eph) eph.textContent = expPerHour(hero, map).toLocaleString();
   const hpEl = document.getElementById('stat-hp-pots');
   const manaEl = document.getElementById('stat-mana-pots');
   if (hpEl) hpEl.textContent = gameState.hpPotions || 0;
   if (manaEl) manaEl.textContent = gameState.manaPotions || 0;
-  document.getElementById('skill-points').textContent = hero.skillPoints || 0;
 }
 
 function renderLog() {
@@ -1895,11 +2050,40 @@ function renderLog() {
   }).join('');
 }
 
+function fillMapScore(btn, map, heroScore) {
+  if (!btn || !map) return;
+  let el = btn.querySelector('.map-score');
+  if (!el) {
+    el = document.createElement('span');
+    el.className = 'map-score';
+    const hint = btn.querySelector('.map-hint');
+    if (hint) btn.insertBefore(el, hint);
+    else btn.appendChild(el);
+  }
+  const rec = mapRecommendScore(map, gameState);
+  el.textContent = `推荐 ${formatCompactNum(rec)}`;
+  el.classList.toggle('ok', heroScore >= rec);
+  el.classList.toggle('mid', heroScore >= rec * 0.75 && heroScore < rec);
+  el.classList.toggle('low', heroScore < rec * 0.75);
+}
+
 function renderMapSelect() {
   const hero = getActiveHero(gameState);
   const actsEl = document.getElementById('map-acts');
   const container = document.getElementById('map-list');
+  const diffEl = document.getElementById('diff-select');
   if (!actsEl || !container) return;
+  ensureWorldDiff(gameState);
+  if (diffEl) {
+    const cur = getWorldDiff(gameState);
+    diffEl.innerHTML = WORLD_DIFFS.map(d => {
+      const open = diffUnlocked(gameState, d.id);
+      const title = open
+        ? `${d.name}：怪物 Lv.${d.lvMin}–${d.lvMax}，×${d.monsterMult}，掉落属性 ×${d.lootMult}`
+        : `击败${WORLD_DIFFS.find(x => x.tier === d.tier - 1)?.name || '上一'}难度的巴尔后解锁`;
+      return `<button type="button" class="diff-tab diff-${d.id}${cur.id === d.id ? ' active' : ''}${open ? '' : ' locked'}" data-diff="${d.id}" title="${title}">${d.name}</button>`;
+    }).join('');
+  }
   gameState.mapsEntered = gameState.mapsEntered || {};
   if (hero.currentMap) gameState.mapsEntered[hero.currentMap] = true;
   const heroAct = hero.currentMap === 'rift' ? 6 : (getMap(hero.currentMap)?.act || 1);
@@ -1947,7 +2131,7 @@ function renderMapSelect() {
 
   if (mapActTab === 6) {
     ensureRiftHero(hero);
-    const rmap = makeRiftMap(hero.riftFloor);
+    const rmap = withDiffLevels(makeRiftMap(hero.riftFloor), gameState);
     const locked = !riftUnlocked(gameState);
     const p = mapClearProgress(gameState, rmap);
     if (container.dataset.act !== '6' || container.childElementCount !== 1) {
@@ -1957,11 +2141,12 @@ function renderMapSelect() {
           <span class="map-name"></span>
           <span class="map-lv"></span>
         </div>
+        <span class="map-score"></span>
         <div class="map-prog"><div class="map-prog-fill"></div></div>
         <span class="map-hint"></span>
         <span class="map-new-tag" hidden>新解锁</span>
         <span class="map-new-dot" hidden></span>
-      </button>`;
+    </button>`;
     }
     const btn = container.children[0];
     const isNew = !locked && !gameState.mapsEntered.rift && hero.currentMap !== 'rift';
@@ -1969,7 +2154,7 @@ function renderMapSelect() {
     btn.classList.toggle('active', hero.currentMap === 'rift');
     btn.classList.toggle('map-new', isNew);
     btn.querySelector('.map-name').textContent = `${rmap.name}${hero.riftBest ? ` · 最高 ${hero.riftBest} 层` : ''}`;
-    btn.querySelector('.map-lv').textContent = `Lv.${rmap.levelMin}–${rmap.levelMax}${mapExpPenalty(hero, rmap).kind ? (mapExpPenalty(hero, rmap).kind === 'high' ? ' · 过高惩罚' : ' · 过低惩罚') : ''}`;
+    btn.querySelector('.map-lv').textContent = `Lv.${rmap.levelMin}–${rmap.levelMax}`;
     btn.querySelector('.map-prog-fill').style.width = `${locked ? 0 : p.pct}%`;
     btn.querySelector('.map-hint').textContent = locked
       ? '未解锁 · 需开放世界之石要塞'
@@ -1978,6 +2163,7 @@ function renderMapSelect() {
     const dot = btn.querySelector('.map-new-dot');
     if (tag) tag.hidden = !isNew;
     if (dot) dot.hidden = !isNew;
+    fillMapScore(btn, rmap, heroGearScore(hero));
     return;
   }
 
@@ -1990,6 +2176,7 @@ function renderMapSelect() {
           <span class="map-name"></span>
           <span class="map-lv"></span>
         </div>
+        <span class="map-score"></span>
         <div class="map-prog"><div class="map-prog-fill"></div></div>
         <span class="map-hint"></span>
         <span class="map-new-tag" hidden>新解锁</span>
@@ -1998,9 +2185,10 @@ function renderMapSelect() {
     ).join('');
   }
 
-  visible.forEach((map, i) => {
+  visible.forEach((raw, i) => {
+    const map = withDiffLevels(raw, gameState);
     const btn = container.children[i];
-    const locked = !mapUnlocked(gameState, map);
+    const locked = !mapUnlocked(gameState, raw);
     const p = mapClearProgress(gameState, map);
     const isNew = !locked && !gameState.mapsEntered[map.id] && map.id !== hero.currentMap;
     btn.disabled = false;
@@ -2009,8 +2197,7 @@ function renderMapSelect() {
     btn.classList.toggle('map-new', isNew);
     btn.classList.toggle('boss', !!map.isBoss);
     btn.querySelector('.map-name').textContent = map.name + (map.isBoss ? ' · Boss' : '');
-    const mp = mapExpPenalty(hero, map);
-    btn.querySelector('.map-lv').textContent = `Lv.${map.levelMin}–${map.levelMax}${mp.kind ? (mp.kind === 'high' ? ' · 过高惩罚' : ' · 过低惩罚') : ''}`;
+    btn.querySelector('.map-lv').textContent = `Lv.${map.levelMin}–${map.levelMax}`;
     btn.querySelector('.map-prog-fill').style.width = `${locked ? 0 : p.pct}%`;
     btn.querySelector('.map-hint').textContent = locked
       ? (`未解锁 · ${mapUnlockHint(gameState, map) || '尚未开放'}`)
@@ -2019,6 +2206,7 @@ function renderMapSelect() {
     const dot = btn.querySelector('.map-new-dot');
     if (tag) tag.hidden = !isNew;
     if (dot) dot.hidden = !isNew;
+    fillMapScore(btn, map, heroGearScore(hero));
   });
 }
 
@@ -2037,7 +2225,7 @@ function showOfflineModal() {
   }
   const itemsHtml = rewards.items.slice(0, 12).map(item => {
     const q = QUALITY[item.quality];
-    return `<div class="loot-item" style="color:${q.color}">${item.name} (${q.name})</div>`;
+    return `<div class="loot-item" style="color:${q.color}">${itemDisplayName(item)} (${q.name})</div>`;
   }).join('');
   showModal('离线收益', `
     <p>离线 <strong>${rewards.hours}</strong> 小时 · 效率 ${rewards.eff}%${rewards.expPen ? ` · <span class="exp-pen">${rewards.expPen}</span>` : ''}</p>
@@ -2074,16 +2262,17 @@ function showSkillModal(keepId) {
       const skill = SKILLS[hero.charId][skillId];
       const lv = hero.skillLevels[skillId] || 0;
       const parts = skillLevelParts(hero, skillId, stats);
-      const preOk = !skill.prereq || (hero.skillLevels[skill.prereq] || 0) > 0;
+      const granted = (parts.grant || 0) > 0;
+      const preOk = !skill.prereq || (hero.skillLevels[skill.prereq] || 0) > 0 || granted;
       const lvOk = hero.level >= (skill.reqLevel || 1);
       const usable = skill.type !== 'passive';
       const on = skill.type === 'aura' && skill.auraSlot ? isAuraOn(hero, skillId) : isSkillEnabled(hero, skillId);
       const toggleLab = skill.type === 'aura' && skill.auraSlot ? (on ? '当前' : '切换') : (on ? '使用中' : '已停用');
-      treesHtml += `<div type="button" class="skill-icon-cell ${lv > 0 ? 'learned' : ''} ${!preOk || !lvOk ? 'locked' : ''} ${lv > 0 && usable && !on ? 'skill-off' : ''} ${selSkillId === skillId ? 'sel-skill' : ''}" data-skill-tip="${skillId}">
-        ${skillIconHtml(skill, lv)}
+      treesHtml += `<div type="button" class="skill-icon-cell ${lv > 0 || granted ? 'learned' : ''} ${!preOk || !lvOk ? 'locked' : ''} ${(lv > 0 || granted) && usable && !on ? 'skill-off' : ''} ${selSkillId === skillId ? 'sel-skill' : ''}" data-skill-tip="${skillId}">
+        ${skillIconHtml(skill, Math.max(lv, parts.grant || 0))}
         <span class="skill-ic-name">${skill.name}</span>
         <span class="skill-ic-lv">${formatSkillLevelHtml(parts)}</span>
-        ${lv > 0 && usable ? `<button type="button" class="skill-use ${on ? 'on' : 'off'}" data-act="toggle-skill" data-uid="${skillId}">${toggleLab}</button>` : ''}
+        ${(lv > 0 || granted) && usable ? `<button type="button" class="skill-use ${on ? 'on' : 'off'}" data-act="toggle-skill" data-uid="${skillId}">${toggleLab}</button>` : ''}
         ${canLearnSkill(hero, skillId, gameState).ok ? `<button type="button" class="skill-add" data-act="learn" data-uid="${skillId}">+</button>` : ''}
       </div>`;
     }
@@ -2144,7 +2333,7 @@ function showCharacterModal() {
   const progress = getUnlockProgress(gameState);
   const hero = getActiveHero(gameState);
   let html = `<div class="stats-detail">
-    <div>${CHARACTERS[hero.charId].name} Lv.${hero.level} · DPS ${calcDPS(hero).toLocaleString()} · EHP ${calcEHP(hero).toLocaleString()}</div>
+    <div>${CHARACTERS[hero.charId].name} Lv.${hero.level} · 总评分 ${formatCompactNum(heroGearScore(hero))} · DPS ${calcDPS(hero).toLocaleString()} · EHP ${calcEHP(hero).toLocaleString()}</div>
     <div>召唤物 ${(() => { const r = getSummonRoster(hero); const m = r.filter(s => s.role === 'melee').length; const n = r.filter(s => s.role === 'ranged').length; return `${r.length}（近战 ${m} · 远程 ${n}）`; })()} · 技能点 ${hero.skillPoints || 0}</div>
   </div><div class="char-list">`;
   for (const [id, char] of Object.entries(CHARACTERS)) {
@@ -2161,7 +2350,7 @@ function showCharacterModal() {
       <div class="char-info">
         <div class="char-name">${char.name}</div>
         <div class="char-desc">${char.desc}</div>
-        ${unlocked ? `<div class="char-lv">Lv.${h?.level || 1}</div>` : `<div class="char-unlock">${unlockText}</div>`}
+        ${unlocked ? `<div class="char-lv">Lv.${h?.level || 1} · ${formatCompactNum(heroGearScore(h))}</div>` : `<div class="char-unlock">${unlockText}</div>`}
       </div>
       ${unlocked && !active ? `<button class="btn-small btn-switch" data-char="${id}">出战</button>` : ''}
     </div>`;
@@ -2179,7 +2368,7 @@ function showCharacterModal() {
       lastCampSig = '';
       closeModal();
       onUpdate?.();
-      renderAll();
+        renderAll();
     });
   });
 }
@@ -2192,23 +2381,36 @@ function showShopModal() {
 
 function potionShopCardsHtml() {
   ensurePotionState(gameState);
-  const tier = potionTierDef(gameState);
-  const packCost = tier.unitCost * POTION_PACK;
+  const hpTier = potionTierDef(gameState, 'hp');
+  const manaTier = potionTierDef(gameState, 'mana');
   const a = gameState.potionAuto;
-  const nextCost = potionUpgradeCost(gameState);
-  const maxed = (gameState.potionTier || 1) >= POTION_TIERS.length;
+  const hall = getHallLevel(gameState);
   const autoBtn = (id, on, label) =>
     `<button type="button" class="btn-small ${on ? 'on' : ''}" id="${id}">${label}${on ? ' · 开' : ' · 关'}</button>`;
+  const upCard = (kind, tier, title) => {
+    const maxed = (gameState[potionKindKey(kind)] || 1) >= POTION_TIERS.length;
+    const block = potionUpgradeBlocked(gameState, kind);
+    const cost = maxed ? null : potionUpgradeCost(gameState, kind);
+    const pct = kind === 'mana' ? Math.round(tier.manaPct * 100) : Math.round(tier.healPct * 100);
+    return `<div class="inv-item">
+      <div class="inv-item-header"><span>${title} ${tier.lv}/${POTION_TIERS.length} · ${tier.name}</span><span>${maxed ? '已满级' : `议事厅 ${hall} 级`}</span></div>
+      <div class="inv-affixes">恢复 ${pct}%${kind === 'mana' ? ' 最大魔法' : ' 最大生命'}。升级消耗随等级成长，且受议事厅等级限制。</div>
+      ${maxed
+        ? '<p class="hint">已满级</p>'
+        : (block && block !== '药水已达最高级'
+          ? `<p class="hall-gate-note">${block}</p>`
+          : payActionHtml(kind === 'mana' ? 'potion-up-mana' : 'potion-up-hp', '', `升级${title}`, cost))}
+    </div>`;
+  };
+  const hpPack = hpTier.unitCost * POTION_PACK;
+  const manaPack = manaTier.unitCost * POTION_PACK;
   return `
-    <p class="hint">当前 ${tier.name}药水（${tier.lv} 级）：生命恢复 ${Math.round(tier.healPct * 100)}% 最大生命，魔力恢复 ${Math.round(tier.manaPct * 100)}% 最大魔法。库存生命药 ${gameState.hpPotions || 0} · 魔力药 ${gameState.manaPotions || 0}</p>
+    <p class="hint">生命药与魔力药分别升级。库存生命药 ${gameState.hpPotions || 0} · 魔力药 ${gameState.manaPotions || 0}</p>
+    ${upCard('hp', hpTier, '生命药水')}
+    ${upCard('mana', manaTier, '魔力药水')}
     <div class="inv-item">
-      <div class="inv-item-header"><span>药水等级 ${tier.lv}/${POTION_TIERS.length} · ${tier.name}</span><span>${maxed ? '已满级' : nextCost.toLocaleString() + ' 金'}</span></div>
-      <div class="inv-affixes">升级后所有库存药水立刻按新等级的百分比生效。生命低于 42%、魔法低于 35% 时自动饮用。</div>
-      <button class="btn-small" id="shop-potion-up" ${maxed ? 'disabled' : ''}>${maxed ? '已满级' : '升级药水'}</button>
-    </div>
-    <div class="inv-item">
-      <div class="inv-item-header"><span>${tier.name}生命药水 ×${POTION_PACK}</span><span>${packCost} 金</span></div>
-      <div class="inv-affixes">恢复 ${Math.round(tier.healPct * 100)}% 生命 · 自动维持 ${a.keepHp} 瓶</div>
+      <div class="inv-item-header"><span>${hpTier.name}生命药水 ×${POTION_PACK}</span><span>${hpPack} 金</span></div>
+      <div class="inv-affixes">恢复 ${Math.round(hpTier.healPct * 100)}% 生命 · 自动维持 ${a.keepHp} 瓶</div>
       <div class="potion-actions">
         <button class="btn-small" id="shop-pots">购买</button>
         ${autoBtn('auto-buy-hp', a.buyHp, '自动购买')}
@@ -2216,8 +2418,8 @@ function potionShopCardsHtml() {
       </div>
     </div>
     <div class="inv-item">
-      <div class="inv-item-header"><span>${tier.name}魔力药水 ×${POTION_PACK}</span><span>${packCost} 金</span></div>
-      <div class="inv-affixes">恢复 ${Math.round(tier.manaPct * 100)}% 魔法（仅魔法职业自动购买）· 自动维持 ${a.keepMana} 瓶</div>
+      <div class="inv-item-header"><span>${manaTier.name}魔力药水 ×${POTION_PACK}</span><span>${manaPack} 金</span></div>
+      <div class="inv-affixes">恢复 ${Math.round(manaTier.manaPct * 100)}% 魔法（仅魔法职业自动购买）· 自动维持 ${a.keepMana} 瓶</div>
       <div class="potion-actions">
         <button class="btn-small" id="shop-mana-pots">购买</button>
         ${autoBtn('auto-buy-mana', a.buyMana, '自动购买')}
@@ -2228,17 +2430,11 @@ function potionShopCardsHtml() {
 }
 
 function shopPanelHtml(hero) {
-  const bagCost = bagExpandCost(gameState);
   const resetCost = skillResetCost(hero);
   const mats = ensureMats(gameState);
   return `
     <p class="hint">金币 ${formatCompactNum(gameState.gold)} · 金属 ${formatCompactNum(mats.metal)} · 布料 ${formatCompactNum(mats.cloth)} · 水晶 ${formatCompactNum(mats.crystal)}</p>
     ${potionShopCardsHtml()}
-    <div class="inv-item">
-      <div class="inv-item-header"><span>扩大背包 +8 格</span><span>${bagCost} 金</span></div>
-      <div class="inv-affixes">当前容量 ${getInvCap(gameState)}（最多再扩 ${8 - (gameState.bagExpands || 0)} 次）</div>
-      <button class="btn-small" id="shop-bag">购买</button>
-    </div>
     <div class="inv-item">
       <div class="inv-item-header"><span>重置技能点</span><span>${resetCost} 金</span></div>
       <div class="inv-affixes">返还已投入点数，保留开局基础技能。永久属性请去训练场。</div>
@@ -2258,18 +2454,8 @@ function bindShopPanel(afterBuy) {
     afterBuy?.();
     renderAll();
   };
-  document.getElementById('shop-pots')?.addEventListener('click', () => buy(() => buyPotions(gameState, POTION_PACK, 'hp'), `购入${potionTierDef(gameState).name}生命药水 ×${POTION_PACK}`));
-  document.getElementById('shop-mana-pots')?.addEventListener('click', () => buy(() => buyPotions(gameState, POTION_PACK, 'mana'), `购入${potionTierDef(gameState).name}魔力药水 ×${POTION_PACK}`));
-  document.getElementById('shop-potion-up')?.addEventListener('click', () => {
-    const r = upgradePotionTier(gameState);
-    if (!r.ok) {
-      addLog({ type: 'info', text: r.reason || '无法升级' });
-      return;
-    }
-    addLog({ type: 'loot', text: `药水升至 ${r.tier.name}（${r.tier.lv} 级）` });
-    afterBuy?.();
-    renderAll();
-  });
+  document.getElementById('shop-pots')?.addEventListener('click', () => buy(() => buyPotions(gameState, POTION_PACK, 'hp'), `购入${potionTierDef(gameState, 'hp').name}生命药水 ×${POTION_PACK}`));
+  document.getElementById('shop-mana-pots')?.addEventListener('click', () => buy(() => buyPotions(gameState, POTION_PACK, 'mana'), `购入${potionTierDef(gameState, 'mana').name}魔力药水 ×${POTION_PACK}`));
   const toggle = (id, key) => {
     document.getElementById(id)?.addEventListener('click', () => {
       togglePotionAuto(gameState, key);
@@ -2281,7 +2467,6 @@ function bindShopPanel(afterBuy) {
   toggle('auto-use-hp', 'useHp');
   toggle('auto-buy-mana', 'buyMana');
   toggle('auto-use-mana', 'useMana');
-  document.getElementById('shop-bag')?.addEventListener('click', () => buy(() => buyBagExpand(gameState), '背包扩容 +8'));
   document.getElementById('shop-reset')?.addEventListener('click', () => buy(() => buySkillReset(gameState), '技能已重置'));
 }
 
@@ -2370,8 +2555,8 @@ function townBulkBarHtml() {
     <button type="button" class="btn-small" data-act="town-clear">取消</button>
     <button type="button" class="btn-small" data-act="town-sell" ${items.length ? '' : 'disabled'}>出售 ${formatCompactNum(gold)}金</button>
     <button type="button" class="btn-small" data-act="town-salvage" ${items.length ? '' : 'disabled'}>${salvageBtnText(items)}</button>
-  </div>`;
-}
+    </div>`;
+  }
 
 function onTownClick(e) {
   if (e.target.closest('#town-close')) return;
@@ -2407,7 +2592,7 @@ function onTownClick(e) {
       const again = document.querySelector(
         `[data-wh="${CSS.escape(uid)}"], #town-overlay [data-inv="${CSS.escape(uid)}"]`
       );
-      if (again) showPeekTip(again);
+      if (again) showPeekTip(again, true);
     }
     return;
   }
@@ -2438,7 +2623,7 @@ function onTownClick(e) {
     const r = withdrawFromWarehouse(gameState, uid);
     if (!r.ok) addLog({ type: 'info', text: r.reason });
     else {
-      addLog({ type: 'loot', text: `取出 ${r.item.name}` });
+      addLog({ type: 'loot', text: `取出 ${itemDisplayName(r.item)}` });
       selTownUid = r.item.uid;
       townInvTab = 'bag';
     }
@@ -2446,7 +2631,7 @@ function onTownClick(e) {
     const r = stashToWarehouse(gameState, uid);
     if (!r.ok) addLog({ type: 'info', text: r.reason });
     else {
-      addLog({ type: 'loot', text: `存入仓库 ${r.item.name}` });
+      addLog({ type: 'loot', text: `存入仓库 ${itemDisplayName(r.item)}` });
       selTownUid = r.item.uid;
       townInvTab = 'ware';
     }
@@ -2484,6 +2669,11 @@ function onTownClick(e) {
     const r = upgradeHall(gameState);
     if (!r.ok) addLog({ type: 'info', text: failActText(r.reason, '升级') });
     else addLog({ type: 'loot', text: `议事厅升至 ${r.lv} 级` });
+  } else if (act === 'potion-up-hp' || act === 'potion-up-mana') {
+    const kind = act === 'potion-up-mana' ? 'mana' : 'hp';
+    const r = upgradePotionTier(gameState, kind);
+    if (!r.ok) addLog({ type: 'info', text: failActText(r.reason, '升级') });
+    else addLog({ type: 'loot', text: `${kind === 'mana' ? '魔力' : '生命'}药水升至 ${r.tier.name}（${r.tier.lv} 级）` });
   } else if (act === 'wh-lock') {
     const it = findOwnedItem(gameState, uid);
     if (it) it.locked = !it.locked;
@@ -2560,7 +2750,6 @@ function townItemActions(item, fromWare) {
   if (!item) return '<p class="hint">点格子选装备。多选后可批量出售或分解。</p>';
   const hero = getActiveHero(gameState);
   return `
-    ${itemCardHtml(item, fromWare ? '仓库' : '背包', { hero, compact: true })}
     <div class="inspect-actions">
       ${fromWare
         ? `<button type="button" class="btn-small" data-act="withdraw" data-uid="${item.uid}">取出到背包</button>`
@@ -2571,6 +2760,7 @@ function townItemActions(item, fromWare) {
       ${rerollBtnHtml(item)}
       ${enhanceBtnHtml(item)}
     </div>
+    ${itemCardHtml(item, fromWare ? '仓库' : '背包', { hero, compact: true })}
   `;
 }
 
@@ -2595,13 +2785,16 @@ function renderTown() {
   if (townBuilding === 'hall') {
     const mats = ensureMats(gameState);
     const hall = getHallLevel(gameState);
+    const openAct = highestOpenAct(gameState);
+    const actNames = { 1: '一章', 2: '二章', 3: '三章', 4: '四章', 5: '五章', 6: '秘境' };
     const unlocks = TRAIN_DEFS.map(d => {
       const ok = hall >= d.hall;
       return `<div class="reward-item">Lv.${d.hall} ${d.name} <strong class="${ok ? '' : 'hall-gate'}">${ok ? '可解锁' : '议事厅条件不满足'}</strong></div>`;
     }).join('');
     const hallCost = hall < HALL_MAX ? hallUpgradeCost(hall) : null;
+    const hallBlock = hallUpgradeBlocked(gameState);
     body = `<h3>议事厅 ${hall}/${HALL_MAX}</h3>
-      <p>升级议事厅可解锁训练场项目。出征仍在进行。</p>
+      <p>议事厅随章节解锁。当前可挑战至${actNames[openAct] || openAct}。升级消耗按等级成长，药水升级也受议事厅限制。</p>
       <div class="reward-grid">
         <div class="reward-item">金币 <strong title="${gameState.gold.toLocaleString()}">${formatCompactNum(gameState.gold)}</strong></div>
         <div class="reward-item">金属 <strong title="${mats.metal.toLocaleString()}">${formatCompactNum(mats.metal)}</strong></div>
@@ -2613,7 +2806,9 @@ function renderTown() {
       </div>
       <h3>训练解锁</h3>
       <div class="reward-grid">${unlocks}</div>
-      ${hallCost ? payActionHtml('hall-up', '', `升级议事厅至 ${hall + 1} 级`, hallCost) : '<p class="hint">议事厅已满级。</p>'}`;
+      ${hallCost && !hallBlock
+        ? payActionHtml('hall-up', '', `升级议事厅至 ${hall + 1} 级`, hallCost)
+        : `<p class="hint">${hallBlock || '议事厅已满级。'}</p>`}`;
   } else if (townBuilding === 'warehouse') {
     const item = (town.warehouse || []).find(i => i.uid === selTownUid)
       || (gameState.inventory || []).find(i => i.uid === selTownUid);

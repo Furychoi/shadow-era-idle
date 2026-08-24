@@ -9,6 +9,7 @@ const QUALITY = {
   legendary: { id: 'legendary', name: '传奇', color: '#ffb040', affixCount: [4, 5] },
   ancient: { id: 'ancient', name: '远古传奇', color: '#ff7a6a', affixCount: [5, 5] },
   ancientSet: { id: 'ancientSet', name: '远古套装', color: '#c8ff6a', affixCount: [5, 5] },
+  ancientUnique: { id: 'ancientUnique', name: '远古暗金', color: '#ffe08a', affixCount: [6, 6] },
 };
 
 const WEAPON_CLASS_NAMES = {
@@ -27,6 +28,70 @@ const JUNK_FILTER_MODES = [
   { id: 'set', name: '套装' },
   { id: 'legendary', name: '传奇' },
 ];
+
+const WORLD_DIFFS = [
+  { id: 'normal', name: '普通', tier: 0, monsterMult: 1, lootMult: 1, lvMin: 1, lvMax: 88 },
+  { id: 'hard', name: '困难', tier: 1, monsterMult: 1.5, lootMult: 2, lvMin: 60, lvMax: 95 },
+  { id: 'nightmare', name: '噩梦', tier: 2, monsterMult: 2.25, lootMult: 4, lvMin: 70, lvMax: 100 },
+  { id: 'hell', name: '地狱', tier: 3, monsterMult: 3.375, lootMult: 8, lvMin: 80, lvMax: 105 },
+];
+const CAMPAIGN_LV_MIN = 1;
+const CAMPAIGN_LV_MAX = 88;
+
+function getDiffById(id) {
+  return WORLD_DIFFS.find(d => d.id === id) || WORLD_DIFFS[0];
+}
+
+function scaleWorldLevel(lv, diff) {
+  const d = typeof diff === 'string' ? getDiffById(diff) : (diff || WORLD_DIFFS[0]);
+  const n = Math.max(1, Number(lv) || 1);
+  const span = Math.max(1, CAMPAIGN_LV_MAX - CAMPAIGN_LV_MIN);
+  if (n <= CAMPAIGN_LV_MAX) {
+    const t = (n - CAMPAIGN_LV_MIN) / span;
+    return Math.round(d.lvMin + t * (d.lvMax - d.lvMin));
+  }
+  return d.lvMax + (n - CAMPAIGN_LV_MAX);
+}
+
+function withDiffLevels(map, stateOrDiff) {
+  if (!map) return map;
+  const d = stateOrDiff?.monsterMult != null && stateOrDiff.lvMin != null
+    ? stateOrDiff
+    : getDiffById(stateOrDiff?.diffId || stateOrDiff?.id || stateOrDiff);
+  const min = scaleWorldLevel(map.levelMin, d);
+  const max = Math.max(min, scaleWorldLevel(map.levelMax, d));
+  if (min === map.levelMin && max === map.levelMax) return map;
+  return { ...map, levelMin: min, levelMax: max };
+}
+
+function itemLootMult(item) {
+  if (!item?.diffId) return 1;
+  return getDiffById(item.diffId).lootMult || 1;
+}
+
+function itemStatMult(item) {
+  return itemEnhanceMult(item) * itemLootMult(item);
+}
+
+function itemAffixQualityMult(item) {
+  const q = item?.quality;
+  if (q === 'rare') return 1.2;
+  if (q === 'set' || q === 'ancientSet') return 0.85;
+  return 1;
+}
+
+function itemAffixStatMult(item) {
+  return itemStatMult(item) * itemAffixQualityMult(item);
+}
+
+function itemDisplayName(item) {
+  if (!item) return '';
+  const base = item.name || '';
+  if (!item.diffId) return base;
+  const tag = `${getDiffById(item.diffId).name}难度`;
+  if (base.endsWith(`-${tag}`)) return base;
+  return `${base}-${tag}`;
+}
 
 const AUTO_SELL_MODES = [
   { id: 'normal', name: '普通' },
@@ -47,6 +112,7 @@ const QUALITY_WEIGHTS = [
   { quality: 'legendary', weight: 0.132 },
   { quality: 'ancient', weight: 0.025 },
   { quality: 'ancientSet', weight: 0.018 },
+  { quality: 'ancientUnique', weight: 0.014 },
 ];
 
 const SLOTS = ['weapon', 'helmet', 'chest', 'gloves', 'boots', 'belt', 'necklace', 'ring1', 'ring2', 'offhand'];
@@ -468,56 +534,56 @@ const SETS = {
   sigons: {
     id: 'sigons', name: '西刚的守护', pieceCount: 4, reqClass: 'berserker', color: '#c45a3a',
     bonuses: {
-      2: { desc: '攻击速度 +15%，护甲 +25', attackSpeed: 0.15, armor: 25 },
-      4: { desc: '+2 全技能、生命 +200、减伤 8%', skillLevel: 2, hp: 200, damageReduction: 0.08 },
+      2: { desc: '攻击速度 +15%，护甲 +25；猛击伤害 +20%', attackSpeed: 0.15, armor: 25, skillDmg: { smash: 0.2 } },
+      4: { desc: '+2 全技能、生命 +200、减伤 8%；授予旋风斩，旋风伤害 +30%', skillLevel: 2, hp: 200, damageReduction: 0.08, skillGrant: { whirlwind: 1 }, skillDmg: { whirlwind: 0.3 } },
     },
   },
   talrasha: {
     id: 'talrasha', name: '塔拉夏的法理', pieceCount: 4, reqClass: 'sorceress', color: '#8860d0',
     bonuses: {
-      2: { desc: '火/冰/电伤害 +18%', fireDmgPct: 0.18, iceDmgPct: 0.18, lightningDmgPct: 0.18 },
-      4: { desc: '攻速 +10%、智力等效生命 +80、全抗 +12%', attackSpeed: 0.1, hp: 80, allRes: 0.12 },
+      2: { desc: '火/冰/电伤害 +18%；火球伤害 +20%', fireDmgPct: 0.18, iceDmgPct: 0.18, lightningDmgPct: 0.18, skillDmg: { fireball: 0.2 } },
+      4: { desc: '攻速 +10%、生命 +80、全抗 +12%；授予陨石，陨石伤害 +35%', attackSpeed: 0.1, hp: 80, allRes: 0.12, skillGrant: { meteor: 1 }, skillDmg: { meteor: 0.35 } },
     },
   },
   glory: {
     id: 'glory', name: '亚马逊的荣光', pieceCount: 4, reqClass: 'amazon', color: '#c8a050',
     bonuses: {
-      2: { desc: '穿透 +15%，暴击 +6%', pierceBonus: 0.15, critRate: 0.06 },
-      4: { desc: '物理伤害 +22%，攻速 +8%', physDmgPct: 0.22, attackSpeed: 0.08 },
+      2: { desc: '穿透 +15%，暴击 +6%；多重射击伤害 +20%', pierceBonus: 0.15, critRate: 0.06, skillDmg: { multiShot: 0.2 } },
+      4: { desc: '物理伤害 +22%，攻速 +8%；授予导引箭，其伤害 +35%', physDmgPct: 0.22, attackSpeed: 0.08, skillGrant: { guided: 1 }, skillDmg: { guided: 0.35 } },
     },
   },
   windwalk: {
     id: 'windwalk', name: '风行者之息', pieceCount: 4, reqClass: 'druid', color: '#6a8a40',
     bonuses: {
-      2: { desc: '物理伤害 +14%，生命 +60', physDmgPct: 0.14, hp: 60 },
-      4: { desc: '技能等级 +1，全抗 +10%，召唤伤害 +20%', skillLevel: 1, allRes: 0.1, summonBonus: 0.2 },
+      2: { desc: '物理伤害 +14%，生命 +60；龙卷风伤害 +20%', physDmgPct: 0.14, hp: 60, skillDmg: { tornado: 0.2 } },
+      4: { desc: '技能等级 +1，全抗 +10%，召唤伤害 +20%；授予飓风，飓风伤害 +35%', skillLevel: 1, allRes: 0.1, summonBonus: 0.2, skillGrant: { hurricane: 1 }, skillDmg: { hurricane: 0.35 } },
     },
   },
   shadow: {
     id: 'shadow', name: '影舞者套装', pieceCount: 4, reqClass: 'assassin', color: '#a070c0',
     bonuses: {
-      2: { desc: '攻速 +12%，暴击 +5%', attackSpeed: 0.12, critRate: 0.05 },
-      4: { desc: '陷阱与武学伤害 +20%，能量回复 +8', physDmgPct: 0.12, lightningDmgPct: 0.12 },
+      2: { desc: '攻速 +12%，暴击 +5%；龙爪伤害 +20%', attackSpeed: 0.12, critRate: 0.05, skillDmg: { dragonTalon: 0.2 } },
+      4: { desc: '陷阱与武学伤害 +20%；授予刀刃之井，其伤害 +35%', physDmgPct: 0.12, lightningDmgPct: 0.12, skillGrant: { bladeFury: 1 }, skillDmg: { bladeFury: 0.35 } },
     },
   },
   hallowed: {
     id: 'hallowed', name: '圣光裁决', pieceCount: 4, reqClass: 'paladin', color: '#e8d070',
     bonuses: {
-      2: { desc: '护甲 +30，全抗 +8%', armor: 30, allRes: 0.08 },
-      4: { desc: '光环与战斗技能 +1，减伤 6%', skillLevel: 1, damageReduction: 0.06 },
+      2: { desc: '护甲 +30，全抗 +8%；热诚伤害 +15%', armor: 30, allRes: 0.08, skillDmg: { zeal: 0.15 } },
+      4: { desc: '光环与战斗技能 +1，减伤 6%；授予天堂之拳，其伤害 +35%', skillLevel: 1, damageReduction: 0.06, skillGrant: { fistOfHeavens: 1 }, skillDmg: { fistOfHeavens: 0.35 } },
     },
   },
   trangeir: {
     id: 'trangeir', name: '特兰基尔骨仪', pieceCount: 4, reqClass: 'necro', color: '#b09090',
     bonuses: {
-      2: { desc: '召唤伤害 +18%，生命 +50', summonBonus: 0.18, hp: 50 },
-      4: { desc: '毒素伤害 +20%，技能等级 +1', poisonDmgPct: 0.2, skillLevel: 1 },
+      2: { desc: '召唤伤害 +18%，生命 +50；牙伤害 +20%', summonBonus: 0.18, hp: 50, skillDmg: { teeth: 0.2 } },
+      4: { desc: '毒素伤害 +20%，技能等级 +1；授予骨矛，骨矛伤害 +35%', poisonDmgPct: 0.2, skillLevel: 1, skillGrant: { boneSpear: 1 }, skillDmg: { boneSpear: 0.35 } },
     },
   },
 };
 
 const AFFIX_KIND = {
-  str: 'attr', agi: 'attr', int: 'attr',
+  str: 'attr', agi: 'attr', int: 'attr', vit: 'attr', wis: 'attr',
   physDmgPct: 'atk', fireDmgPct: 'atk', iceDmgPct: 'atk', lightningDmgPct: 'atk', poisonDmgPct: 'atk',
   critRate: 'atk', critDmg: 'atk', attackSpeed: 'atk', attackRange: 'atk',
   skillLevel: 'atk', eliteDmgPct: 'atk', resRegenPct: 'atk', aoePct: 'atk', cdrPct: 'atk', summonBonus: 'atk',
@@ -530,9 +596,11 @@ const AFFIX_KIND_CAP = 3;
 
 const AFFIX_POOL = {
   prefix: [
-    { id: 'str', name: '力量', stat: 'str', min: 3, max: 18, kind: 'attr' },
-    { id: 'agi', name: '敏捷', stat: 'agi', min: 3, max: 18, kind: 'attr' },
-    { id: 'int', name: '智力', stat: 'int', min: 3, max: 18, kind: 'attr' },
+    { id: 'str', name: '力量', stat: 'str', min: 10, max: 48, kind: 'attr' },
+    { id: 'agi', name: '敏捷', stat: 'agi', min: 10, max: 48, kind: 'attr' },
+    { id: 'int', name: '智力', stat: 'int', min: 10, max: 48, kind: 'attr' },
+    { id: 'vit', name: '体力', stat: 'vit', min: 10, max: 48, kind: 'attr' },
+    { id: 'wis', name: '智慧', stat: 'wis', min: 10, max: 48, kind: 'attr' },
     { id: 'physDmg', name: '物理伤害', stat: 'physDmgPct', min: 5, max: 22, suffix: '%', kind: 'atk' },
     { id: 'fireDmg', name: '火系伤害', stat: 'fireDmgPct', min: 5, max: 22, suffix: '%', kind: 'atk' },
     { id: 'iceDmg', name: '冰系伤害', stat: 'iceDmgPct', min: 5, max: 22, suffix: '%', kind: 'atk' },
@@ -543,22 +611,25 @@ const AFFIX_POOL = {
     { id: 'critDmg', name: '暴击伤害', stat: 'critDmg', min: 12, max: 45, suffix: '%', kind: 'atk' },
   ],
   suffix: [
-    { id: 'hp', name: '生命', stat: 'hp', min: 12, max: 90, kind: 'def' },
-    { id: 'armor', name: '护甲', stat: 'armor', min: 5, max: 32, kind: 'def' },
-    { id: 'lifeRegen', name: '每秒回血', stat: 'lifeRegen', min: 1, max: 8, kind: 'def' },
+    { id: 'hp', name: '生命', stat: 'hp', min: 40, max: 220, kind: 'def' },
+    { id: 'armor', name: '护甲', stat: 'armor', min: 14, max: 72, kind: 'def' },
+    { id: 'lifeRegen', name: '每秒回血', stat: 'lifeRegen', min: 4, max: 20, kind: 'def' },
     { id: 'killHeal', name: '击杀回血', stat: 'killHeal', min: 3, max: 15, suffix: '%', kind: 'def' },
     { id: 'allRes', name: '全抗性', stat: 'allRes', min: 5, max: 16, suffix: '%', kind: 'def' },
   ],
 };
 
 const AFFIX_TIER_MAX = 15;
-const ITEM_TIER_BANDS = [
-  { maxLevel: 30, bestTier: 12 },
-  { maxLevel: 45, bestTier: 9 },
-  { maxLevel: 60, bestTier: 6 },
-  { maxLevel: 75, bestTier: 4 },
-  { maxLevel: 90, bestTier: 2 },
-  { maxLevel: 99, bestTier: 1 },
+const NAMED_AFFIX_TIER_BANDS = [
+  { maxLevel: 10, best: 5, mode: 10 },
+  { maxLevel: 20, best: 5, mode: 9 },
+  { maxLevel: 30, best: 5, mode: 8 },
+  { maxLevel: 40, best: 3, mode: 8 },
+  { maxLevel: 50, best: 3, mode: 7 },
+  { maxLevel: 60, best: 3, mode: 6 },
+  { maxLevel: 70, best: 1, mode: 7 },
+  { maxLevel: 80, best: 1, mode: 5 },
+  { maxLevel: 110, best: 1, mode: 3 },
 ];
 
 const EXCLUSIVE_AFFIX_POOL = [
@@ -669,18 +740,18 @@ const BASE_ITEMS = {
 };
 
 function expForLevel(level) {
-  const n = Math.max(1, Math.min(99, level));
+  const n = Math.max(1, Math.min(110, level));
   let e = 95 * n + 26 * n * n;
   if (n >= 20) e *= 1 + (n - 19) * 0.05;
   if (n >= 40) e *= 1 + (n - 39) * 0.085;
-  if (n >= 60) e *= 1 + (n - 59) * 0.13;
-  if (n >= 80) e *= 1 + (n - 79) * 0.2;
-  if (n >= 90) e *= 1 + (n - 89) * 0.32;
+  if (n >= 60) e *= 1 + Math.min(n - 59, 15) * 0.08;
+  if (n >= 75) e *= 1 + (n - 74) * 0.035;
+  if (n >= 90) e *= 1 + (n - 89) * 0.05;
   return Math.floor(e);
 }
 
 function monsterStats(level) {
-  const n = Math.max(1, Math.min(99, level));
+  const n = Math.max(1, Math.min(110, level));
   let hp = 38 + n * 18 + n * n * 0.42;
   let dmg = 1.8 + n * 0.58;
   let armor = n * 0.55;
@@ -700,11 +771,15 @@ function monsterStats(level) {
     hp *= 1 + (n - 79) * 0.1;
     dmg *= 1 + (n - 79) * 0.03;
   }
+  if (n >= 100) {
+    hp *= 1 + (n - 99) * 0.12;
+    dmg *= 1 + (n - 99) * 0.035;
+  }
   return {
     hp: Math.floor(hp),
     damage: Math.max(1, Math.floor(dmg)),
     armor: Math.floor(armor),
-    exp: Math.floor(4 + n * 2.4),
+    exp: Math.floor(4 + n * 2.4 * (n >= 75 ? 1 + (n - 74) * 0.015 : 1)),
     gold: Math.floor(3 + n * 1.6),
   };
 }
@@ -735,7 +810,7 @@ const JEWEL_SALVAGE_SLOTS = new Set(['necklace', 'ring1', 'ring2']);
 function itemEnhanceCapPct(quality) {
   if (quality === 'rare') return 0.3;
   if (quality === 'set' || quality === 'unique' || quality === 'legendary') return 0.5;
-  if (quality === 'ancient' || quality === 'ancientSet') return 0.75;
+  if (quality === 'ancient' || quality === 'ancientSet' || quality === 'ancientUnique') return 0.75;
   return 0;
 }
 
@@ -749,59 +824,87 @@ function itemEnhanceMult(item) {
   return 1 + itemEnhanceBonus(item);
 }
 
+const TRAIN_MAX = 20;
 const TRAIN_DEFS = [
   {
-    id: 'damage', name: '攻击力', desc: '提高角色攻击力',
-    hall: 1, per: 0.03, max: 15, unit: '%',
-    unlock: { gold: 28000, metal: 90, cloth: 20, crystal: 20 },
+    id: 'hp', name: '生命', desc: '提高最大生命',
+    hall: 1, per: 14, max: TRAIN_MAX, unit: '',
   },
   {
-    id: 'attackSpeed', name: '攻击速度', desc: '提高攻速（原磨刀石）',
-    hall: 2, per: 0.02, max: 10, unit: '%',
-    unlock: { gold: 22000, metal: 110, cloth: 10, crystal: 10 },
+    id: 'armor', name: '防御', desc: '提高护甲',
+    hall: 2, per: 2.5, max: TRAIN_MAX, unit: '',
+  },
+  {
+    id: 'allRes', name: '全抗性', desc: '提高全元素抗性',
+    hall: 3, per: 0.008, max: TRAIN_MAX, unit: '%',
+  },
+  {
+    id: 'str', name: '力量', desc: '提高力量',
+    hall: 1, per: 2, max: TRAIN_MAX, unit: '',
+  },
+  {
+    id: 'agi', name: '敏捷', desc: '提高敏捷',
+    hall: 2, per: 2, max: TRAIN_MAX, unit: '',
+  },
+  {
+    id: 'int', name: '智力', desc: '提高智力',
+    hall: 3, per: 2, max: TRAIN_MAX, unit: '',
+  },
+  {
+    id: 'vit', name: '体力', desc: '提高体力（并增加生命）',
+    hall: 1, per: 2, max: TRAIN_MAX, unit: '',
+  },
+  {
+    id: 'wisdom', name: '智慧', desc: '提高智慧（资源上限与回复）',
+    hall: 4, per: 5, max: TRAIN_MAX, unit: '',
+  },
+  {
+    id: 'damage', name: '攻击力', desc: '提高角色攻击力',
+    hall: 1, per: 0.03, max: TRAIN_MAX, unit: '%',
+  },
+  {
+    id: 'attackSpeed', name: '攻击速度', desc: '提高攻速',
+    hall: 2, per: 0.02, max: TRAIN_MAX, unit: '%',
   },
   {
     id: 'physDmg', name: '物理伤害', desc: '提高物理伤害加成',
-    hall: 3, per: 0.025, max: 12, unit: '%',
-    unlock: { gold: 36000, metal: 95, cloth: 20, crystal: 20 },
+    hall: 3, per: 0.025, max: TRAIN_MAX, unit: '%',
   },
   {
     id: 'elemDmg', name: '元素伤害', desc: '火/冰/电/毒伤害',
-    hall: 4, per: 0.025, max: 12, unit: '%',
-    unlock: { gold: 36000, metal: 25, cloth: 45, crystal: 95 },
+    hall: 4, per: 0.025, max: TRAIN_MAX, unit: '%',
   },
   {
     id: 'attackRange', name: '攻击范围', desc: '提高普攻与技能射程',
-    hall: 5, per: 0.03, max: 10, unit: '%',
-    unlock: { gold: 42000, metal: 40, cloth: 85, crystal: 40 },
+    hall: 5, per: 0.03, max: TRAIN_MAX, unit: '%',
   },
   {
     id: 'cdr', name: '冷却缩减', desc: '缩短技能冷却',
-    hall: 6, per: 0.015, max: 10, unit: '%',
-    unlock: { gold: 48000, metal: 50, cloth: 30, crystal: 110 },
+    hall: 6, per: 0.015, max: TRAIN_MAX, unit: '%',
   },
 ];
 
 const HALL_MAX = 6;
 
 function heroTrainBonuses(hero) {
-  const out = { damage: 0, attackSpeed: 0, elemDmg: 0, physDmg: 0, attackRange: 0, cdr: 0 };
+  const out = {};
+  for (const def of TRAIN_DEFS) out[def.id] = 0;
   const t = hero?.train;
   if (!t) return out;
   for (const def of TRAIN_DEFS) {
     if (!t.unlocked?.[def.id]) continue;
-    const lv = Math.min(def.max, Math.max(0, t.lv?.[def.id] || 0));
+    const lv = Math.min(def.max || TRAIN_MAX, Math.max(0, t.lv?.[def.id] || 0));
     out[def.id] = lv * def.per;
   }
   return out;
 }
 
 const DEFAULT_SKILLS = {
-  berserker: ['smash', 'leap', 'whirlwind', 'taunt'],
-  amazon: ['magicArrow', 'multiShot', 'pierce'],
-  sorceress: ['fireball', 'meteor', 'frostNova', 'blizzard', 'hydra'],
-  druid: ['tornado', 'hurricane', 'raven', 'spiritWolf'],
-  assassin: ['fireBlast', 'lightningSentry', 'phoenix', 'tigerStrike'],
-  paladin: ['zeal', 'blessedHammer', 'fistOfHeavens', 'fanaticism'],
-  necro: ['raiseSkeleton', 'teeth', 'poisonNova', 'amplify'],
+  berserker: ['smash', 'leap', 'taunt'],
+  amazon: ['magicArrow'],
+  sorceress: ['fireball', 'frostNova'],
+  druid: ['raven', 'spiritWolf'],
+  assassin: ['fireBlast', 'tigerStrike'],
+  paladin: ['zeal', 'might'],
+  necro: ['raiseSkeleton', 'teeth'],
 };

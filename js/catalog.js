@@ -17,8 +17,8 @@ function addSet(def, pieces) {
 
 addSet(
   { id: 'immortal', name: '不朽之王', reqClass: 'berserker', color: '#c8a060', bonuses: {
-    2: { desc: '力量与生命', hp: 70 },
-    4: { desc: '物理伤害 +20%，减伤 7%', physDmgPct: 0.2, damageReduction: 0.07 },
+    2: { desc: '生命 +70；授予旋风斩，旋风伤害 +25%', hp: 70, skillGrant: { whirlwind: 1 }, skillDmg: { whirlwind: 0.25 } },
+    4: { desc: '物理 +20%，减伤 7%；旋风伤害 +50%，旋风怒气消耗 -35%', physDmgPct: 0.2, damageReduction: 0.07, skillDmg: { whirlwind: 0.5 }, skillCostPct: { whirlwind: 0.35 } },
   } },
   [
     { id: 'ik_maul', name: '不朽战锤', slot: 'weapon', weaponClass: 'melee', icon: 'hammer', baseDamage: 28, affixes: [ax('str', 12, '力量'), ax('physDmgPct', 14, '物理伤害')] },
@@ -29,8 +29,8 @@ addSet(
 );
 addSet(
   { id: 'wreckage', name: '破军狂澜', reqClass: 'berserker', color: '#e05030', bonuses: {
-    2: { desc: '攻速 +12%', attackSpeed: 0.12 },
-    4: { desc: '范围 +12%，物理 +16%', aoePct: 0.12, physDmgPct: 0.16 },
+    2: { desc: '攻速 +12%；猛击伤害 +20%', attackSpeed: 0.12, skillDmg: { smash: 0.2 } },
+    4: { desc: '范围 +12%，物理 +16%；授予狂乱，狂乱伤害 +40%', aoePct: 0.12, physDmgPct: 0.16, skillGrant: { frenzy: 1 }, skillDmg: { frenzy: 0.4 } },
   } },
   [
     { id: 'wr_helm', name: '破军盔', slot: 'helmet', icon: 'helm', armor: 12, affixes: [ax('critRate', 6, '暴击率')] },
@@ -41,8 +41,8 @@ addSet(
 );
 addSet(
   { id: 'sky', name: '苍穹猎手', reqClass: 'amazon', color: '#88b8e0', bonuses: {
-    2: { desc: '攻击距离 +12%', attackRange: 0.12 },
-    4: { desc: '攻速 +10%，物理 +18%', attackSpeed: 0.1, physDmgPct: 0.18 },
+    2: { desc: '攻击距离 +12%；多重射击伤害 +20%', attackRange: 0.12, skillDmg: { multiShot: 0.2 } },
+    4: { desc: '攻速 +10%，物理 +18%；授予扫射，扫射伤害 +45%', attackSpeed: 0.1, physDmgPct: 0.18, skillGrant: { strafe: 1 }, skillDmg: { strafe: 0.45 } },
   } },
   [
     { id: 'sky_xbow', name: '苍穹十字弩', slot: 'weapon', weaponClass: 'bow', icon: 'crossbow', baseDamage: 22, affixes: [ax('agi', 10, '敏捷'), ax('attackRange', 12, '攻击距离')] },
@@ -53,8 +53,8 @@ addSet(
 );
 addSet(
   { id: 'javelin', name: '女武神投枪', reqClass: 'amazon', color: '#d4c060', bonuses: {
-    2: { desc: '电伤 +16%', lightningDmgPct: 0.16 },
-    4: { desc: '穿透 +10%，技能 +1', pierceBonus: 0.1, skillLevel: 1 },
+    2: { desc: '电伤 +16%；充能一击伤害 +20%', lightningDmgPct: 0.16, skillDmg: { chargedStrike: 0.2 } },
+    4: { desc: '穿透 +10%，技能 +1；授予闪电之怒，其伤害 +40%', pierceBonus: 0.1, skillLevel: 1, skillGrant: { lightningFury: 1 }, skillDmg: { lightningFury: 0.4 } },
   } },
   [
     { id: 'jv_spear', name: '女武神投枪', slot: 'weapon', weaponClass: 'javelin', icon: 'javelin', baseDamage: 20, affixes: [ax('str', 8, '力量'), ax('lightningDmgPct', 12, '电系伤害')] },
@@ -65,8 +65,8 @@ addSet(
 );
 addSet(
   { id: 'orbiter', name: '奥比特雷纹', reqClass: 'sorceress', color: '#ffe060', bonuses: {
-    2: { desc: '电伤 +20%', lightningDmgPct: 0.2 },
-    4: { desc: '范围 +14%，冷却 8%', aoePct: 0.14, cdrPct: 0.08 },
+    2: { desc: '电伤 +20%；连锁闪电伤害 +20%', lightningDmgPct: 0.2, skillDmg: { chainLightning: 0.2 } },
+    4: { desc: '范围 +14%，冷却 8%；授予雷暴，雷暴伤害 +40%', aoePct: 0.14, cdrPct: 0.08, skillGrant: { thunderstorm: 1 }, skillDmg: { thunderstorm: 0.4 } },
   } },
   [
     { id: 'ob_staff', name: '雷纹法杖', slot: 'weapon', weaponClass: 'caster', icon: 'staff', baseDamage: 16, affixes: [ax('int', 12, '智力'), ax('lightningDmgPct', 14, '电系伤害')] },
@@ -77,8 +77,8 @@ addSet(
 );
 addSet(
   { id: 'frostveil', name: '霜帷法仪', reqClass: 'sorceress', color: '#80d8ff', bonuses: {
-    2: { desc: '冰伤 +20%', iceDmgPct: 0.2 },
-    4: { desc: '全抗 +10%，技能 +1', allRes: 0.1, skillLevel: 1 },
+    2: { desc: '冰伤 +20%；冰枪伤害 +20%', iceDmgPct: 0.2, skillDmg: { glacial: 0.2 } },
+    4: { desc: '全抗 +10%，技能 +1；授予暴风雪，暴风雪伤害 +45%', allRes: 0.1, skillLevel: 1, skillGrant: { blizzard: 1 }, skillDmg: { blizzard: 0.45 } },
   } },
   [
     { id: 'fv_orb', name: '霜帷法珠', slot: 'weapon', weaponClass: 'caster', icon: 'orb', baseDamage: 15, affixes: [ax('int', 11, '智力'), ax('iceDmgPct', 14, '冰系伤害')] },
@@ -89,8 +89,8 @@ addSet(
 );
 addSet(
   { id: 'werehide', name: '兽皮图腾', reqClass: 'druid', color: '#8a6030', bonuses: {
-    2: { desc: '生命 +80', hp: 80 },
-    4: { desc: '物理 +16%，护甲 +20', physDmgPct: 0.16, armor: 20 },
+    2: { desc: '生命 +80；狼人期间伤害生效更快', hp: 80, skillDmg: { fury: 0.2 } },
+    4: { desc: '物理 +16%，护甲 +20；授予狂怒，狂怒伤害 +40%', physDmgPct: 0.16, armor: 20, skillGrant: { fury: 1 }, skillDmg: { fury: 0.4 } },
   } },
   [
     { id: 'wh_totem', name: '兽皮图腾', slot: 'weapon', weaponClass: 'caster', icon: 'totem', baseDamage: 18, affixes: [ax('str', 8, '力量'), ax('physDmgPct', 10, '物理伤害')] },
@@ -101,8 +101,8 @@ addSet(
 );
 addSet(
   { id: 'packlord', name: '狼群领主', reqClass: 'druid', color: '#6a8a40', bonuses: {
-    2: { desc: '召唤伤害 +16%', summonBonus: 0.16 },
-    4: { desc: '技能 +1，生命 +70', skillLevel: 1, hp: 70 },
+    2: { desc: '召唤伤害 +16%；飓风伤害 +15%', summonBonus: 0.16, skillDmg: { hurricane: 0.15 } },
+    4: { desc: '技能 +1，生命 +70；授予飓风，飓风伤害 +35%', skillLevel: 1, hp: 70, skillGrant: { hurricane: 1 }, skillDmg: { hurricane: 0.35 } },
   } },
   [
     { id: 'pl_staff', name: '领主图腾', slot: 'weapon', weaponClass: 'caster', icon: 'totem', baseDamage: 17, affixes: [ax('int', 10, '智力')] },
@@ -113,8 +113,8 @@ addSet(
 );
 addSet(
   { id: 'trapsmith', name: '机关师', reqClass: 'assassin', color: '#d4a040', bonuses: {
-    2: { desc: '电/火 +12%', lightningDmgPct: 0.12, fireDmgPct: 0.12 },
-    4: { desc: '冷却 10%，范围 10%', cdrPct: 0.1, aoePct: 0.1 },
+    2: { desc: '电/火 +12%；闪电守卫伤害 +20%', lightningDmgPct: 0.12, fireDmgPct: 0.12, skillDmg: { lightningSentry: 0.2 } },
+    4: { desc: '冷却 10%，范围 10%；授予死亡守卫，其伤害 +40%', cdrPct: 0.1, aoePct: 0.1, skillGrant: { deathSentry: 1 }, skillDmg: { deathSentry: 0.4 } },
   } },
   [
     { id: 'ts_claw', name: '机关拳刃', slot: 'weapon', weaponClass: 'claw', icon: 'claw', baseDamage: 18, affixes: [ax('agi', 10, '敏捷')] },
@@ -125,8 +125,8 @@ addSet(
 );
 addSet(
   { id: 'clawdance', name: '刃舞', reqClass: 'assassin', color: '#c080e0', bonuses: {
-    2: { desc: '攻速 +14%', attackSpeed: 0.14 },
-    4: { desc: '暴击 +6%，物理 +14%', critRate: 0.06, physDmgPct: 0.14 },
+    2: { desc: '攻速 +14%；虎击伤害 +20%', attackSpeed: 0.14, skillDmg: { tigerStrike: 0.2 } },
+    4: { desc: '暴击 +6%，物理 +14%；授予凤凰打击，其伤害 +40%', critRate: 0.06, physDmgPct: 0.14, skillGrant: { phoenix: 1 }, skillDmg: { phoenix: 0.4 } },
   } },
   [
     { id: 'cd_claw', name: '刃舞拳刃', slot: 'weapon', weaponClass: 'claw', icon: 'claw', baseDamage: 21, affixes: [ax('agi', 12, '敏捷'), ax('attackSpeed', 10, '攻击速度')] },
@@ -137,8 +137,8 @@ addSet(
 );
 addSet(
   { id: 'hammerdin', name: '圣锤仪仗', reqClass: 'paladin', color: '#f0e8c8', bonuses: {
-    2: { desc: '魔法伤害（物理近似）+12%', physDmgPct: 0.12 },
-    4: { desc: '技能 +1，范围 +12%', skillLevel: 1, aoePct: 0.12 },
+    2: { desc: '物理近似 +12%；神圣之锤伤害 +25%', physDmgPct: 0.12, skillDmg: { blessedHammer: 0.25 } },
+    4: { desc: '技能 +1，范围 +12%；授予神圣之锤，其伤害 +45%', skillLevel: 1, aoePct: 0.12, skillGrant: { blessedHammer: 1 }, skillDmg: { blessedHammer: 0.45 } },
   } },
   [
     { id: 'hd_scepter', name: '仪仗权杖', slot: 'weapon', weaponClass: 'melee', icon: 'scepter', baseDamage: 22, affixes: [ax('str', 10, '力量')] },
@@ -149,8 +149,8 @@ addSet(
 );
 addSet(
   { id: 'zealot', name: '热诚十字军', reqClass: 'paladin', color: '#d4b050', bonuses: {
-    2: { desc: '攻速 +12%', attackSpeed: 0.12 },
-    4: { desc: '物理 +18%，全抗 +8%', physDmgPct: 0.18, allRes: 0.08 },
+    2: { desc: '攻速 +12%；热诚伤害 +20%', attackSpeed: 0.12, skillDmg: { zeal: 0.2 } },
+    4: { desc: '物理 +18%，全抗 +8%；授予牺牲，牺牲伤害 +35%', physDmgPct: 0.18, allRes: 0.08, skillGrant: { sacrifice: 1 }, skillDmg: { sacrifice: 0.35 } },
   } },
   [
     { id: 'zl_sword', name: '十字军剑', slot: 'weapon', weaponClass: 'melee', icon: 'sword', baseDamage: 24, affixes: [ax('str', 11, '力量'), ax('physDmgPct', 10, '物理伤害')] },
@@ -161,8 +161,8 @@ addSet(
 );
 addSet(
   { id: 'bonearmy', name: '白骨军团', reqClass: 'necro', color: '#c8c8b0', bonuses: {
-    2: { desc: '召唤 +20%', summonBonus: 0.2 },
-    4: { desc: '技能 +1，生命 +60', skillLevel: 1, hp: 60 },
+    2: { desc: '召唤 +20%；骨矛伤害 +20%', summonBonus: 0.2, skillDmg: { boneSpear: 0.2 } },
+    4: { desc: '技能 +1，生命 +60；授予尸爆，尸爆伤害 +40%', skillLevel: 1, hp: 60, skillGrant: { corpseExplosion: 1 }, skillDmg: { corpseExplosion: 0.4 } },
   } },
   [
     { id: 'ba_wand', name: '军团魔杖', slot: 'weapon', weaponClass: 'caster', icon: 'wand', baseDamage: 14, affixes: [ax('int', 11, '智力')] },
@@ -173,8 +173,8 @@ addSet(
 );
 addSet(
   { id: 'venom', name: '剧毒仪典', reqClass: 'necro', color: '#70e040', bonuses: {
-    2: { desc: '毒素 +22%', poisonDmgPct: 0.22 },
-    4: { desc: '范围 +10%，冷却 8%', aoePct: 0.1, cdrPct: 0.08 },
+    2: { desc: '毒素 +22%；毒新星伤害 +20%', poisonDmgPct: 0.22, skillDmg: { poisonNova: 0.2 } },
+    4: { desc: '范围 +10%，冷却 8%；授予毒新星，其伤害 +40%', aoePct: 0.1, cdrPct: 0.08, skillGrant: { poisonNova: 1 }, skillDmg: { poisonNova: 0.4 } },
   } },
   [
     { id: 'vn_wand', name: '毒仪魔杖', slot: 'weapon', weaponClass: 'caster', icon: 'wand', baseDamage: 15, affixes: [ax('int', 10, '智力'), ax('poisonDmgPct', 12, '毒素伤害')] },
@@ -198,8 +198,8 @@ addSet(
 );
 addSet(
   { id: 'cathan', name: '卡珊的法环', color: '#c06040', bonuses: {
-    2: { desc: '火伤 +14%', fireDmgPct: 0.14 },
-    4: { desc: '智力向生命 +40，攻速 8%', hp: 40, attackSpeed: 0.08 },
+    2: { desc: '火伤 +14%；火球伤害 +18%', fireDmgPct: 0.14, skillDmg: { fireball: 0.18 } },
+    4: { desc: '生命 +40，攻速 8%；授予火球', hp: 40, attackSpeed: 0.08, skillGrant: { fireball: 1 } },
   } },
   [
     { id: 'ct_ring', name: '卡珊戒指', slot: 'ring1', affixes: [ax('int', 8, '智力')] },
@@ -210,8 +210,8 @@ addSet(
 );
 addSet(
   { id: 'arctic', name: '极地行者', color: '#a0d8ff', bonuses: {
-    2: { desc: '冰伤 +14%', iceDmgPct: 0.14 },
-    4: { desc: '全抗 +8%，生命 +45', allRes: 0.08, hp: 45 },
+    2: { desc: '冰伤 +14%；冰霜新星伤害 +18%', iceDmgPct: 0.14, skillDmg: { frostNova: 0.18 } },
+    4: { desc: '全抗 +8%，生命 +45；授予冰霜新星', allRes: 0.08, hp: 45, skillGrant: { frostNova: 1 } },
   } },
   [
     { id: 'ar_belt', name: '极地带', slot: 'belt', armor: 4, affixes: [ax('hp', 20, '生命')] },
@@ -222,8 +222,8 @@ addSet(
 );
 addSet(
   { id: 'infernal', name: '地狱火炬', color: '#ff6a30', bonuses: {
-    2: { desc: '火伤 +16%', fireDmgPct: 0.16 },
-    4: { desc: '对精英 +12%，技能 +1', eliteDmgPct: 0.12, skillLevel: 1 },
+    2: { desc: '火伤 +16%；火墙伤害 +18%', fireDmgPct: 0.16, skillDmg: { fireWall: 0.18 } },
+    4: { desc: '对精英 +12%，技能 +1；授予陨石，陨石伤害 +30%', eliteDmgPct: 0.12, skillLevel: 1, skillGrant: { meteor: 1 }, skillDmg: { meteor: 0.3 } },
   } },
   [
     { id: 'in_belt', name: '地狱腰带', slot: 'belt', armor: 4, affixes: [ax('fireDmgPct', 8, '火系伤害')] },
