@@ -426,6 +426,11 @@ function bindEvents() {
   document.getElementById('item-tip')?.addEventListener('click', onCampClick);
   document.getElementById('modal')?.addEventListener('click', onCampClick);
   document.querySelector('.combat-panel')?.addEventListener('click', onCampClick);
+  document.getElementById('build-pop')?.addEventListener('pointerdown', (e) => e.stopPropagation());
+  document.getElementById('build-pop')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onCampClick(e);
+  });
   document.getElementById('item-tip')?.addEventListener('mouseenter', () => clearTimeout(hoverTimer));
   document.getElementById('item-tip')?.addEventListener('mouseleave', () => {
     if (tipPinned) return;
@@ -1516,8 +1521,14 @@ function placeBuildPop(anchor) {
   let left = r.left + (r.width - w) / 2;
   if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8;
   if (left < 8) left = 8;
-  let top = r.top - h - 8;
-  if (top < 8) top = 8;
+  const bar = document.getElementById('char-tabs');
+  const barTop = bar ? bar.getBoundingClientRect().top : r.top;
+  const barBottom = bar ? bar.getBoundingClientRect().bottom : r.bottom;
+  let top = barTop - h - 8;
+  if (top < 8) {
+    top = barBottom + 8;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h - 8);
+  }
   pop.style.left = `${left}px`;
   pop.style.top = `${top}px`;
 }

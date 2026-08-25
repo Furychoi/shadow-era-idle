@@ -1227,6 +1227,7 @@ body {
 }
 .autosell-pop[hidden] { display: none; }
 .build-pop {
+  z-index: 160;
   background: linear-gradient(180deg, #6a542e 0%, #3e3018 42%, #2a2010 100%);
   border: 3px solid #f0d078;
   border-radius: 8px;
