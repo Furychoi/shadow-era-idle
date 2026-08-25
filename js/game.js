@@ -120,6 +120,8 @@ function migrateHeroEconomy(state) {
 function createNewGame() {
   const state = {
     unlockedChars: ['berserker'],
+    seenChars: ['berserker'],
+    seenCharsV1: true,
     activeCharId: 'berserker',
     heroes: {
       berserker: createHero('berserker'),
@@ -147,6 +149,7 @@ function createNewGame() {
     diffProgressV1: true,
     heroMapProgressV1: true,
     heroMapProgressV2: true,
+    heroDiffUnlockV1: true,
     town: createTownState(),
   };
   ensureDiffProgress(state);
@@ -176,6 +179,8 @@ function createHero(charId, level = 1, equipment = {}) {
     currentMap: 'wasteland',
     holdMap: false,
     diffProgress: {},
+    diffId: 'normal',
+    diffCleared: {},
     currentHp: null,
     kills: 0, combo: 0, deaths: 0,
     isDead: false, respawnTimer: 0,
@@ -404,8 +409,8 @@ function loadGame() {
     if (!state.mapKills) state.mapKills = {};
     if (!state.bossesKilled) state.bossesKilled = {};
     if (state.autoNextMap == null) state.autoNextMap = true;
-    ensureDiffProgress(state);
     migrateHeroCampaigns(state);
+    migrateHeroDiffUnlocks(state);
     ensureWorldDiff(state);
     ensureDiffProgress(state);
     syncCampaignAlias(state);
@@ -457,6 +462,11 @@ function loadGame() {
     ensureTown(state);
     if (isMapCleared(state, TOWN_UNLOCK_MAP)) state.town.unlocked = true;
     tryUnlockClasses(state);
+    if (!state.seenCharsV1) {
+      state.seenCharsV1 = true;
+      state.seenChars = [...(state.unlockedChars || [])];
+    }
+    if (!Array.isArray(state.seenChars)) state.seenChars = [state.activeCharId || 'berserker'];
     for (const h of Object.values(state.heroes || {})) {
       for (const it of h.inventory || []) {
         syncNamedItemPower(it);
@@ -483,6 +493,22 @@ function inferWeaponClass(item) {
   if (/杖|珠|图腾|法器|魔杖/.test(n)) return 'caster';
   if (/爪|拳刃/.test(n)) return 'claw';
   return 'melee';
+}
+
+function canDualWield(hero) {
+  return !!CHARACTERS[hero?.charId]?.dualWield;
+}
+
+function dualWieldClassNeed(hero) {
+  if (hero?.charId === 'assassin') return 'claw';
+  if (hero?.charId === 'berserker') return 'melee';
+  return null;
+}
+
+function isDualWieldWeapon(hero, item) {
+  if (!canDualWield(hero) || !item || item.slot !== 'weapon') return false;
+  const need = dualWieldClassNeed(hero);
+  return inferWeaponClass(item) === need;
 }
 
 function skillWeaponReady(hero, skill) {
@@ -532,10 +558,10 @@ function cloneDiffProgress(p) {
 }
 
 function campaignOf(state, hero) {
-  ensureWorldDiff(state);
-  const did = getDiffById(state.diffId).id;
   const h = hero || getActiveHero(state);
   if (!h) return emptyDiffProgress();
+  ensureHeroDiff(state, h);
+  const did = getDiffById(h.diffId).id;
   h.diffProgress = h.diffProgress || {};
   if (!h.diffProgress[did]) h.diffProgress[did] = emptyDiffProgress();
   const p = h.diffProgress[did];
@@ -589,6 +615,25 @@ function migrateHeroCampaigns(state) {
       continue;
     }
     resetHeroMapProgress(h);
+  }
+}
+
+function migrateHeroDiffUnlocks(state) {
+  if (!state || state.heroDiffUnlockV1) return;
+  state.heroDiffUnlockV1 = true;
+  for (const h of Object.values(state.heroes || {})) {
+    if (!h) continue;
+    if (!h.diffCleared || typeof h.diffCleared !== 'object') h.diffCleared = {};
+    syncHeroDiffCleared(h);
+    const acc = state.diffId || 'normal';
+    h.diffId = diffUnlocked(state, acc, h) ? acc : 'normal';
+    ensureHeroDiff(state, h);
+    if (h.currentMap === 'rift') {
+      if (!riftUnlocked(state, h)) h.currentMap = 'wasteland';
+    } else {
+      const cm = getMap(h.currentMap);
+      if (cm && !mapUnlocked(state, cm, h)) h.currentMap = 'wasteland';
+    }
   }
 }
 
@@ -671,29 +716,58 @@ function ensureDiffProgress(state) {
   return state;
 }
 
+function syncHeroDiffCleared(hero) {
+  if (!hero) return;
+  if (!hero.diffCleared || typeof hero.diffCleared !== 'object') hero.diffCleared = {};
+  const dp = hero.diffProgress && typeof hero.diffProgress === 'object' ? hero.diffProgress : {};
+  for (const d of WORLD_DIFFS) {
+    if (dp[d.id]?.bossesKilled?.baal) hero.diffCleared[d.id] = true;
+  }
+}
+
+function ensureHeroDiff(state, hero) {
+  if (!hero) return;
+  if (!hero.diffCleared || typeof hero.diffCleared !== 'object') hero.diffCleared = {};
+  syncHeroDiffCleared(hero);
+  if (!hero.diffId) hero.diffId = 'normal';
+  hero.diffId = getDiffById(hero.diffId).id;
+  if (!diffUnlocked(state, hero.diffId, hero)) hero.diffId = 'normal';
+}
+
 function ensureWorldDiff(state) {
   if (!state) return null;
-  const d = getDiffById(state.diffId);
-  state.diffId = d.id;
   state.diffCleared = state.diffCleared || {};
-  if (state.bossesEver?.baal) state.diffCleared.normal = true;
-  if (!diffUnlocked(state, state.diffId)) state.diffId = 'normal';
+  const hero = getActiveHero(state);
+  if (hero) {
+    ensureHeroDiff(state, hero);
+    state.diffId = getDiffById(hero.diffId).id;
+  } else {
+    state.diffId = getDiffById(state.diffId).id;
+  }
   return getDiffById(state.diffId);
 }
 
-function getWorldDiff(state) {
+function getWorldDiff(state, hero) {
+  if (!state) return WORLD_DIFFS[0];
+  const h = hero || getActiveHero(state);
+  if (h) {
+    ensureHeroDiff(state, h);
+    if (h === getActiveHero(state)) state.diffId = getDiffById(h.diffId).id;
+    return getDiffById(h.diffId);
+  }
   return ensureWorldDiff(state) || WORLD_DIFFS[0];
 }
 
-function worldMonsterMult(state) {
-  return getWorldDiff(state).monsterMult || 1;
+function worldMonsterMult(state, hero) {
+  return getWorldDiff(state, hero).monsterMult || 1;
 }
 
-function diffUnlocked(state, id) {
+function diffUnlocked(state, id, hero) {
   const d = getDiffById(id);
   if (!d || d.tier <= 0) return true;
+  const h = hero || getActiveHero(state);
   const prev = WORLD_DIFFS.find(x => x.tier === d.tier - 1);
-  return !!(prev && state?.diffCleared?.[prev.id]);
+  return !!(prev && h?.diffCleared?.[prev.id]);
 }
 
 function nextWorldDiff(id) {
@@ -701,35 +775,64 @@ function nextWorldDiff(id) {
   return WORLD_DIFFS.find(d => d.tier === cur.tier + 1) || null;
 }
 
-function markDiffCleared(state, id) {
-  ensureWorldDiff(state);
+function markDiffCleared(state, id, hero) {
+  const h = hero || getActiveHero(state);
   const d = getDiffById(id);
+  if (h) {
+    ensureHeroDiff(state, h);
+    const already = !!h.diffCleared[d.id];
+    h.diffCleared[d.id] = true;
+    if (h === getActiveHero(state)) {
+      state.diffCleared = state.diffCleared || {};
+      state.diffCleared[d.id] = true;
+    }
+    if (already) return null;
+    return nextWorldDiff(d.id);
+  }
+  ensureWorldDiff(state);
   const already = !!state.diffCleared[d.id];
   state.diffCleared[d.id] = true;
   if (already) return null;
   return nextWorldDiff(d.id);
 }
 
-function setWorldDiff(state, id) {
-  ensureDiffProgress(state);
-  ensureWorldDiff(state);
+function restoreHeroMapFromCamp(state, h, camp) {
+  const want = camp.lastMap || 'wasteland';
+  if (want === 'rift') {
+    h.currentMap = riftUnlocked(state, h) ? 'rift' : 'wasteland';
+  } else {
+    const m = getMap(want);
+    h.currentMap = (m && mapUnlocked(state, m, h)) ? want : 'wasteland';
+  }
+  camp.lastMap = h.currentMap;
+  const cur = getMap(h.currentMap);
+  if (!cur || cur.isRift || !mapCampaignDone(state, cur, h)) h.holdMap = false;
+}
+
+function setWorldDiff(state, id, hero) {
+  const h = hero || getActiveHero(state);
+  if (!h) return { ok: false, reason: '无法切换难度' };
+  ensureHeroDiff(state, h);
   const d = getDiffById(id);
-  if (!diffUnlocked(state, d.id)) {
+  if (!diffUnlocked(state, d.id, h)) {
     const prev = WORLD_DIFFS.find(x => x.tier === d.tier - 1);
     return { ok: false, reason: `击败${prev?.name || '上一'}难度的巴尔后解锁${d.name}` };
   }
-  if (state.diffId === d.id) return { ok: true, same: true, diff: d };
-  snapshotHeroMaps(state);
-  state.diffId = d.id;
-  ensureDiffProgress(state);
-  restoreHeroMaps(state);
-  syncCampaignAlias(state);
+  if (h.diffId === d.id) return { ok: true, same: true, diff: d };
+  const oldCamp = campaignOf(state, h);
+  oldCamp.lastMap = h.currentMap || 'wasteland';
+  h.diffId = d.id;
+  if (h === getActiveHero(state)) state.diffId = d.id;
+  const newCamp = campaignOf(state, h);
+  restoreHeroMapFromCamp(state, h, newCamp);
+  syncCampaignAlias(state, h);
   return { ok: true, diff: d };
 }
 
-function stampLootDiff(item, state) {
+function stampLootDiff(item, state, heroOrCharId) {
   if (!item || !state) return item;
-  item.diffId = getWorldDiff(state).id;
+  const hero = typeof heroOrCharId === 'string' ? state.heroes?.[heroOrCharId] : heroOrCharId;
+  item.diffId = getWorldDiff(state, hero).id;
   return item;
 }
 
@@ -742,8 +845,19 @@ function ensureRiftHero(hero) {
   return hero;
 }
 
-function riftDifficultyMult(floor) {
-  return 1 + Math.max(0, (Math.max(1, floor || 1) - 1) * 0.02);
+function riftFloorSteps(floor) {
+  return Math.max(0, Math.max(1, Math.floor(Number(floor) || 1)) - 1);
+}
+
+function riftKindStatRate(kind) {
+  if (kind === 'riftBoss' || kind === 'actBoss' || kind === 'boss' || kind === 'rareBoss') return 0.05;
+  if (kind === 'rare' || kind === 'hidden') return 0.04;
+  if (kind === 'elite') return 0.03;
+  return 0.02;
+}
+
+function riftDifficultyMult(floor, kind) {
+  return 1 + riftFloorSteps(floor) * riftKindStatRate(kind);
 }
 
 function riftHighestOpen(hero) {
@@ -770,7 +884,7 @@ function getCurrentMap(hero, state) {
   } else {
     map = getMap(hero?.currentMap);
   }
-  return state ? withDiffLevels(map, state) : map;
+  return state ? withDiffLevels(map, getWorldDiff(state, hero)) : map;
 }
 
 function tryAutoNextMap(state, hero) {
@@ -873,9 +987,7 @@ function classUnlockHint(charId) {
   const u = (typeof CLASS_UNLOCKS !== 'undefined' ? CLASS_UNLOCKS : []).find(x => x.charId === charId);
   if (!u) return '初始职业';
   const d = WORLD_DIFFS.find(x => x.id === u.diffId);
-  const boss = typeof BOSSES !== 'undefined' ? BOSSES[u.bossId] : null;
-  const bossName = boss?.name || '章节首领';
-  return `${d?.name || ''}难度 · 击败${bossName}（第${actOrdinalName(u.act)}章）`;
+  return `${d?.name || '普通'}难度 - 通关第${actOrdinalName(u.act)}章`;
 }
 
 function isClassUnlockDone(state, u) {
@@ -915,6 +1027,7 @@ function onRiftBossKill(state, hero, monster) {
   ensureRiftHero(hero);
   const cleared = hero.riftFloor;
   hero.riftBest = Math.max(hero.riftBest || 0, cleared);
+  hero.riftFloor = cleared + 1;
   hero.riftProgress = 0;
   hero.riftBossReady = false;
   const loot = [];
@@ -1038,7 +1151,7 @@ function chapterBossAppearChance(state, map, pity = 0, hero) {
 }
 
 function mapClearFactor(state, map, hero) {
-  if (map?.isRift) return Math.min(1.5, 0.9 + Math.max(0, (map.riftFloor || 1) - 1) * 0.02);
+  if (map?.isRift) return 0.9 + Math.max(0, (map.riftFloor || 1) - 1) * 0.02;
   hero = hero || getActiveHero(state);
   const need = map.clearKills || 140;
   return (campaignOf(state, hero).mapKills?.[map.id] || 0) / need;
@@ -1597,7 +1710,7 @@ function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = n
     if (def.armor) item.listedArmor = def.armor;
     if (def.attackSpeed) item.listedAttackSpeed = def.attackSpeed;
     refreshItemBases(item);
-    return stampLootDiff(syncNamedItemPower(rollItemAffixes(item, item.itemLevel)), state);
+    return stampLootDiff(syncNamedItemPower(rollItemAffixes(item, item.itemLevel)), state, charId);
   };
 
   if (quality === 'unique' || quality === 'ancientUnique') {
@@ -1638,7 +1751,7 @@ function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = n
   if (base.reqClass) item.reqClass = base.reqClass;
   refreshItemBases(item);
   rollItemAffixes(item, item.itemLevel);
-  return stampLootDiff(item, state);
+  return stampLootDiff(item, state, charId);
 }
 
 function sellValue(item) {
@@ -1929,6 +2042,15 @@ function formatCompactNum(n) {
   return String(v);
 }
 
+function formatEffNum(n) {
+  const v = Number(n) || 0;
+  const sign = v < 0 ? '-' : '';
+  const abs = Math.abs(v);
+  if (abs < 1000) return Number.isInteger(v) ? String(v) : sign + abs.toFixed(2);
+  if (abs < 1e6) return sign + (abs / 1e3).toFixed(2) + 'K';
+  return sign + (abs / 1e6).toFixed(2) + 'M';
+}
+
 function formatMatBits(p) {
   const bits = [];
   if ((p.metal || 0) > 0) bits.push(`金属${formatCompactNum(p.metal)}`);
@@ -2198,6 +2320,7 @@ function inferOffhandClass(item) {
 
 function offhandFitsWeapon(weapon, offhand) {
   if (!offhand) return { ok: true };
+  if (offhand.slot === 'weapon') return { ok: false, reason: '该部位不能装备第二把武器' };
   const oc = inferOffhandClass(offhand);
   const wc = inferWeaponClass(weapon);
   if (oc === 'quiver') {
@@ -2211,56 +2334,89 @@ function offhandFitsWeapon(weapon, offhand) {
   return { ok: true };
 }
 
-function equipBlockReason(hero, item) {
+function offhandFitsHero(hero, weapon, offhand) {
+  if (!offhand) return { ok: true };
+  if (offhand.slot === 'weapon') {
+    if (!canDualWield(hero)) return { ok: false, reason: '该职业无法双持' };
+    const need = dualWieldClassNeed(hero);
+    const needName = WEAPON_CLASS_NAMES[need] || need;
+    if (!isDualWieldWeapon(hero, offhand)) {
+      return { ok: false, reason: `副手双持仅限${needName}` };
+    }
+    if (!weapon) return { ok: false, reason: '请先装备主手武器再双持' };
+    if (!isDualWieldWeapon(hero, weapon)) {
+      return { ok: false, reason: `双持需主手也是${needName}` };
+    }
+    return { ok: true };
+  }
+  return offhandFitsWeapon(weapon, offhand);
+}
+
+function equipBlockReason(hero, item, destSlot) {
   if (!hero || !item) return '';
   const req = itemClassId(item);
   if (req && req !== hero.charId) {
     const who = CHARACTERS[req]?.name || req;
     return `仅限 ${who}`;
   }
-  if (item.slot === 'offhand') {
-    const chk = offhandFitsWeapon(hero.equipment?.weapon, item);
+  const dest = destSlot || item.slot;
+  if (dest === 'offhand') {
+    const piece = item.slot === 'weapon' ? item : item;
+    const chk = offhandFitsHero(hero, hero.equipment?.weapon, piece);
+    if (!chk.ok) return chk.reason;
+  } else if (item.slot === 'offhand') {
+    const chk = offhandFitsHero(hero, hero.equipment?.weapon, item);
     if (!chk.ok) return chk.reason;
   }
   return '';
 }
 
-function itemFitsSlot(item, slot) {
+function itemFitsSlot(item, slot, hero) {
   if (!item || !slot) return false;
   if (slot === 'ring1' || slot === 'ring2') return isRingItem(item);
-  if (slot === 'offhand') return item.slot === 'offhand';
+  if (slot === 'offhand') {
+    if (item.slot === 'offhand') return true;
+    return !!(hero && isDualWieldWeapon(hero, item));
+  }
   if (slot === 'weapon' && inferOffhandClass(item) === 'quiver') return true;
   return item.slot === slot;
 }
 
 function tryEquip(state, hero, item, preferredSlot) {
-  const dest = isRingItem(item)
-    ? ringSlotForEquip(hero, preferredSlot || item.slot)
-    : item.slot;
-  const block = equipBlockReason(hero, item);
+  let dest;
+  if (isRingItem(item)) dest = ringSlotForEquip(hero, preferredSlot || item.slot);
+  else if (item.slot === 'weapon' && preferredSlot === 'offhand' && canDualWield(hero)) dest = 'offhand';
+  else dest = item.slot;
+  const block = equipBlockReason(hero, item, dest);
   if (block) return { ok: false, reason: block };
-  if (item.slot === 'offhand') {
-    const chk = offhandFitsWeapon(hero.equipment.weapon, item);
+  if (dest === 'offhand') {
+    const chk = offhandFitsHero(hero, hero.equipment.weapon, item.slot === 'weapon' ? item : item);
     if (!chk.ok) return { ok: false, reason: chk.reason };
   }
   let extra = null;
-  if (item.slot === 'weapon') {
-    const chk = offhandFitsWeapon(item, hero.equipment.offhand);
+  if (dest === 'weapon' && item.slot === 'weapon') {
+    const chk = offhandFitsHero(hero, item, hero.equipment.offhand);
     if (!chk.ok && hero.equipment.offhand) {
       extra = hero.equipment.offhand;
       delete hero.equipment.offhand;
     }
   }
   const prev = hero.equipment[dest];
-  hero.equipment[dest] = { ...item, slot: dest };
+  const stored = { ...item };
+  if (!(dest === 'offhand' && item.slot === 'weapon')) stored.slot = dest;
+  hero.equipment[dest] = stored;
   return { ok: true, prev, dest, extra };
+}
+
+function compareEquipSlot(hero, newItem, preferredSlot) {
+  if (isRingItem(newItem)) return ringSlotForEquip(hero, preferredSlot || newItem.slot);
+  if (newItem.slot === 'weapon' && preferredSlot === 'offhand' && canDualWield(hero)) return 'offhand';
+  return newItem.slot;
 }
 
 function compareDPS(hero, newItem, preferredSlot) {
   const oldDps = Math.max(1, calcDPS(hero));
-  const slot = isRingItem(newItem)
-    ? ringSlotForEquip(hero, preferredSlot || newItem.slot)
-    : newItem.slot;
+  const slot = compareEquipSlot(hero, newItem, preferredSlot);
   const prev = hero.equipment[slot];
   hero.equipment[slot] = newItem;
   const newDps = calcDPS(hero);
@@ -2271,9 +2427,7 @@ function compareDPS(hero, newItem, preferredSlot) {
 function compareEHP(hero, newItem, preferredSlot) {
   const map = getCurrentMap(hero);
   const ml = map ? Math.round(((map.levelMin || 1) + (map.levelMax || 1)) / 2) : (hero.level || 10);
-  const slot = isRingItem(newItem)
-    ? ringSlotForEquip(hero, preferredSlot || newItem.slot)
-    : newItem.slot;
+  const slot = compareEquipSlot(hero, newItem, preferredSlot);
   const oldEhp = Math.max(1, calcEHP(hero, ml));
   const prev = hero.equipment[slot];
   hero.equipment[slot] = newItem;
@@ -2444,13 +2598,15 @@ function mapLevelAvg(map) {
 function mapRecommendScore(map, state) {
   if (!map) return 0;
   const lv = Math.max(1, Math.round(mapLevelAvg(map)));
-  const w = (typeof worldMonsterMult === 'function' && state) ? worldMonsterMult(state) : 1;
+  const w = (typeof worldMonsterMult === 'function' && state)
+    ? worldMonsterMult(state, getActiveHero(state)) : 1;
   const rift = (map.isRift && typeof riftDifficultyMult === 'function')
-    ? riftDifficultyMult(map.riftFloor) : 1;
+    ? riftDifficultyMult(map.riftFloor, 'riftBoss') : 1;
   let hp;
   let dmg;
-  if (map.isBoss && map.bossId && typeof BOSSES !== 'undefined' && BOSSES[map.bossId]) {
-    const boss = BOSSES[map.bossId];
+  const riftBoss = map.isRift && typeof BOSSES !== 'undefined' && BOSSES.baal;
+  if (riftBoss || (map.isBoss && map.bossId && typeof BOSSES !== 'undefined' && BOSSES[map.bossId])) {
+    const boss = riftBoss ? BOSSES.baal : BOSSES[map.bossId];
     const from = monsterStats(Math.max(1, boss.level || lv));
     const to = monsterStats(lv);
     hp = boss.hp * (to.hp / Math.max(1, from.hp)) * w * rift;
@@ -2461,8 +2617,9 @@ function mapRecommendScore(map, state) {
     hp = ms.hp * w * rift * pack * 1.55;
     dmg = ms.damage * w * rift * 1.3;
   }
-  const dpsNeed = hp / (map.isBoss ? 9 : 3.6);
-  const ehpNeed = dmg * (map.isBoss ? 18 : 12);
+  const asBoss = !!(map.isBoss || map.isRift);
+  const dpsNeed = hp / (asBoss ? 9 : 3.6);
+  const ehpNeed = dmg * (asBoss ? 18 : 12);
   return combatPowerScore(dpsNeed, ehpNeed);
 }
 
@@ -2550,17 +2707,17 @@ function claimOfflineRewards(state, rewards) {
 function onBossKill(state, bossId) {
   const boss = BOSSES[bossId];
   const map = MAPS.find(m => m.bossId === bossId);
-  const scaled = withDiffLevels(map, state);
-  const lv = scaled ? Math.round((scaled.levelMin + scaled.levelMax) / 2) : (boss.level || 1);
   const hero = getActiveHero(state);
+  const scaled = withDiffLevels(map, getWorldDiff(state, hero));
+  const lv = scaled ? Math.round((scaled.levelMin + scaled.levelMax) / 2) : (boss.level || 1);
   const camp = campaignOf(state, hero);
   const firstOnDiff = !camp.bossesKilled[bossId];
   const loot = firstOnDiff
     ? generateLoot(lv, 'legendary', 'actBoss', hero?.charId, state)
     : generateLoot(lv, null, 'actBoss', hero?.charId, state);
-  const unlockedDiff = bossId === 'baal' ? markDiffCleared(state, getWorldDiff(state).id) : null;
+  const unlockedDiff = bossId === 'baal' ? markDiffCleared(state, getWorldDiff(state, hero).id, hero) : null;
   camp.bossesKilled[bossId] = true;
-  const did = getWorldDiff(state).id;
+  const did = getWorldDiff(state, hero).id;
   state.diffProgress = state.diffProgress || {};
   if (!state.diffProgress[did]) state.diffProgress[did] = emptyDiffProgress();
   state.diffProgress[did].bossesKilled = state.diffProgress[did].bossesKilled || {};

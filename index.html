@@ -34,7 +34,7 @@
     window.__applyUiMode = applyUiMode;
   })();
   </script>
-  <link rel="stylesheet" href="css/style.css?v=112">
+  <link rel="stylesheet" href="css/style.css?v=126">
 </head>
 <body data-mview="combat">
   <div class="app">
@@ -79,13 +79,8 @@
         </div>
         <div class="camp-mid">
           <div id="equip-slots" class="d2-doll"></div>
-          <div class="char-switch">
-            <div class="char-switch-label">角色切换</div>
-            <div id="char-tabs" class="char-tabs" role="tablist" aria-label="切换角色"></div>
-          </div>
         </div>
         <div id="set-preview" class="set-preview"></div>
-        <div id="build-pop" class="autosell-pop build-pop" hidden></div>
         <div class="camp-inv-head">
           <div class="camp-inv-title">
             <span>背包 <span id="inv-count">0/24</span></span>
@@ -112,9 +107,9 @@
           </div>
           <div class="res-strip">
             <span class="res gold">金 <span id="gold-amount">0</span></span>
-            <span class="res">金属 <span id="mat-metal">0</span></span>
-            <span class="res">布 <span id="mat-cloth">0</span></span>
-            <span class="res">晶 <span id="mat-crystal">0</span></span>
+            <span class="res mat-metal">金属 <span id="mat-metal">0</span></span>
+            <span class="res mat-cloth">布 <span id="mat-cloth">0</span></span>
+            <span class="res mat-crystal">晶 <span id="mat-crystal">0</span></span>
           </div>
         </div>
         <div id="camp-inv-filters" class="inv-filters"></div>
@@ -141,21 +136,27 @@
         </div>
         <div class="combat-stage">
           <canvas id="iso-canvas" class="iso-canvas" width="720" height="420"></canvas>
+          <div class="combat-hud">
+            <div class="monster-display compact">
+              <div class="monster-title-row">
+                <div id="monster-name" class="monster-name">搜寻目标…</div>
+                <span id="monster-kind" class="monster-kind"></span>
+              </div>
+              <div class="hp-container">
+                <div class="hp-bar-bg"><div id="monster-hp-bar" class="hp-bar monster-hp"></div></div>
+                <span id="monster-hp-text">—</span>
+              </div>
+              <div id="boss-winrate" class="boss-winrate" style="display:none"></div>
+            </div>
+            <div id="kill-counter" class="kill-counter">击杀 0 / 80</div>
+          </div>
           <div id="combat-buffs" class="combat-buffs"></div>
         </div>
         <div id="combat-skills" class="combat-skills" aria-label="主动技能"></div>
-        <div class="monster-display compact">
-          <div class="monster-title-row">
-            <div id="monster-name" class="monster-name">搜寻目标…</div>
-            <span id="monster-kind" class="monster-kind"></span>
-          </div>
-          <div class="hp-container">
-            <div class="hp-bar-bg"><div id="monster-hp-bar" class="hp-bar monster-hp"></div></div>
-            <span id="monster-hp-text">—</span>
-          </div>
-          <div id="boss-winrate" class="boss-winrate" style="display:none"></div>
+        <div class="char-switch">
+          <div class="char-switch-label">角色切换</div>
+          <div id="char-tabs" class="char-tabs" role="tablist" aria-label="切换角色"></div>
         </div>
-        <div id="kill-counter" class="kill-counter">击杀 0 / 80</div>
         <div id="combat-log" class="combat-log"></div>
       </section>
 
@@ -210,6 +211,7 @@
   </div>
 
   <div id="item-tip" class="item-tip" hidden></div>
+  <div id="build-pop" class="autosell-pop build-pop" hidden></div>
 
   <div id="modal" class="modal">
     <div class="modal-overlay"></div>
@@ -220,12 +222,12 @@
     </div>
   </div>
 
-  <script src="js/data.js?v=112"></script>
-  <script src="js/catalog.js?v=112"></script>
-  <script src="js/combat.js?v=112"></script>
-  <script src="js/iso.js?v=112"></script>
-  <script src="js/game.js?v=112"></script>
-  <script src="js/ui.js?v=112"></script>
-  <script src="js/main.js?v=112"></script>
+  <script src="js/data.js?v=126"></script>
+  <script src="js/catalog.js?v=126"></script>
+  <script src="js/combat.js?v=126"></script>
+  <script src="js/iso.js?v=126"></script>
+  <script src="js/game.js?v=126"></script>
+  <script src="js/ui.js?v=126"></script>
+  <script src="js/main.js?v=126"></script>
 </body>
 </html>

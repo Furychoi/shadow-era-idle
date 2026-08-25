@@ -19,6 +19,7 @@ let hoverTimer = null;
 let attrPage = 0;
 let autosellOpen = false;
 let buildPopOpen = false;
+let lastBuildAnchorSel = null;
 
 function canHoverPeek() {
   return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -289,7 +290,6 @@ function bindEvents() {
   const closeBuildPop = () => {
     buildPopOpen = false;
     document.getElementById('build-pop')?.setAttribute('hidden', '');
-    document.querySelector('.build-cell')?.classList.remove('sel');
   };
   const placeAutosellPop = () => {
     const pop = document.getElementById('autosell-pop');
@@ -315,6 +315,7 @@ function bindEvents() {
   };
   document.getElementById('btn-autosell')?.addEventListener('click', (e) => {
     e.stopPropagation();
+    closeBuildPop();
     if (autosellOpen) closeAutosellPop();
     else openAutosellPop();
   });
@@ -354,8 +355,8 @@ function bindEvents() {
     gameState.autoSell.keepBetter = document.getElementById('as-better')?.checked;
   });
   document.addEventListener('click', (e) => {
-    if (autosellOpen && !e.target.closest?.('.autosell-wrap')) closeAutosellPop();
-    if (buildPopOpen && !e.target.closest?.('#build-pop') && !e.target.closest?.('.build-cell')) closeBuildPop();
+    if (autosellOpen && !e.target.closest?.('#autosell-pop') && !e.target.closest?.('#btn-autosell')) closeAutosellPop();
+    if (buildPopOpen && !e.target.closest?.('#build-pop') && !e.target.closest?.('.char-tab')) closeBuildPop();
   });
   document.querySelector('.modal-overlay')?.addEventListener('click', () => closeModal());
   document.getElementById('btn-inv-multi')?.addEventListener('click', () => {
@@ -504,6 +505,22 @@ function bindEvents() {
     if (!e.target.closest('#item-tip, [data-inv], [data-slot], [data-skill-tip], [data-set-tip], #inv-bulk-bar, #btn-inv-multi')) hideItemTip();
   });
   document.getElementById('map-select')?.addEventListener('pointerdown', (e) => {
+    const riftDirBtn = e.target.closest('[data-rift-dir]');
+    if (riftDirBtn) {
+      e.preventDefault();
+      const h = getActiveHero(gameState);
+      if (!riftUnlocked(gameState, h)) {
+        addLog({ type: 'info', text: '解锁世界之石要塞后可进入小秘境' });
+        return;
+      }
+      if (shiftRiftFloor(h, Number(riftDirBtn.dataset.riftDir) || 0)) {
+        if (h.currentMap === 'rift') resetFieldForZone();
+        addLog({ type: 'info', text: `切换至小秘境 ${h.riftFloor} 层` });
+        lastCampSig = '';
+        renderAll();
+      }
+      return;
+    }
     const diffTab = e.target.closest('.diff-tab');
     if (diffTab) {
       e.preventDefault();
@@ -580,7 +597,7 @@ function bindEvents() {
 function filteredBagItems() {
   let items = (gameState.inventory || []).slice();
   const filter = gameState.invFilter || 'all';
-  if (filter === 'slot') items = items.filter(i => itemFitsSlot(i, selSlot));
+  if (filter === 'slot') items = items.filter(i => itemFitsSlot(i, selSlot, getActiveHero(gameState)));
   return sortBagItems(items, gameState.invSort, getActiveHero(gameState));
 }
 
@@ -592,6 +609,7 @@ function applyBagSlotFromItem(item) {
       selSlot = !hero.equipment.ring1 ? 'ring1' : (!hero.equipment.ring2 ? 'ring2' : 'ring1');
     }
   } else if (item.slot === 'offhand') selSlot = 'offhand';
+  else if (item.slot === 'weapon' && canDualWield(getActiveHero(gameState)) && selSlot === 'offhand') { /* keep offhand for dual-wield compare */ }
   else if (item.slot) selSlot = item.slot;
 }
 
@@ -694,6 +712,9 @@ function onCampClick(e) {
 function runCampAct(act, uid, slot) {
   const hero = getActiveHero(gameState);
   if (act === 'build-toggle') {
+    autosellOpen = false;
+    document.getElementById('autosell-pop')?.setAttribute('hidden', '');
+    lastBuildAnchorSel = null;
     buildPopOpen = !buildPopOpen;
     lastCampSig = '';
     renderHeroPanel();
@@ -795,6 +816,8 @@ function runCampAct(act, uid, slot) {
     invPage = 0;
   } else if (act === 'cmpring') {
     selSlot = uid === 'ring2' ? 'ring2' : 'ring1';
+  } else if (act === 'cmpwep') {
+    selSlot = uid === 'offhand' ? 'offhand' : 'weapon';
   } else if (act === 'potion-up-hp' || act === 'potion-up-mana') {
     const kind = act === 'potion-up-mana' ? 'mana' : 'hp';
     const r = upgradePotionTier(gameState, kind);
@@ -921,7 +944,7 @@ function campSig() {
   const enh = SLOTS.map(s => hero.equipment[s]?.enhance || 0).join(',');
   const mats = ensureMats(gameState);
   const tr = JSON.stringify(hero.train || {});
-  return [hero.charId, hero.level, hero.skillPoints, JSON.stringify(hero.skillLevels), eq, inv, selSlot, selInvUid, [...selInvUids].sort().join('.'), invMultiMode ? 'm' : '', gameState.invFilter || 'all', JSON.stringify(normalizeInvSort(gameState.invSort)), invPage, gameState.autoSell?.enabled ? '1' : '0', gameState.autoSell?.maxQuality || '', gameState.autoSell?.action || '', autosellOpen ? 'p' : '', buildPopOpen ? 'b' : '', hero.buildId || '', enh, mats.metal, mats.cloth, mats.crystal, tr, gameState.gold, gameState.bagExpands || 0, gameState.diffId || 'normal', (gameState.unlockedChars || []).join(',')].join('|');
+  return [hero.charId, hero.level, hero.skillPoints, JSON.stringify(hero.skillLevels), eq, inv, selSlot, selInvUid, [...selInvUids].sort().join('.'), invMultiMode ? 'm' : '', gameState.invFilter || 'all', JSON.stringify(normalizeInvSort(gameState.invSort)), invPage, gameState.autoSell?.enabled ? '1' : '0', gameState.autoSell?.maxQuality || '', gameState.autoSell?.action || '', autosellOpen ? 'p' : '', buildPopOpen ? 'b' : '', hero.buildId || '', enh, mats.metal, mats.cloth, mats.crystal, tr, gameState.gold, gameState.bagExpands || 0, hero.diffId || 'normal', JSON.stringify(hero.diffCleared || {}), (gameState.unlockedChars || []).join(','), (gameState.seenChars || []).join(','), Object.values(gameState.heroes || {}).map(h => `${h.charId}:${h.buildId || ''}`).join(',')].join('|');
 }
 
 function renderHeroPanel() {
@@ -981,7 +1004,7 @@ function renderHeroPanel() {
     resBar.style.background = `linear-gradient(90deg, ${stats.resColor}88, ${stats.resColor})`;
     resText.textContent = `${stats.resName} ${Math.floor(hero.currentRes || 0)} / ${stats.maxRes}`;
   }
-  document.getElementById('current-map-name').textContent = `${map.name} · ${getWorldDiff(gameState).name}`;
+  document.getElementById('current-map-name').textContent = `${map.name} · ${getWorldDiff(gameState, hero).name}`;
   document.getElementById('map-level-range').textContent = `Lv.${map.levelMin}–${map.levelMax} · Act ${map.act}${pen.label ? ` · ${pen.label}` : ''}`;
   document.getElementById('inv-count').textContent = `${gameState.inventory.length}/${getInvCap(gameState)}`;
   renderCharTabs();
@@ -1204,14 +1227,14 @@ function renderCampAttrs(hero) {
     const cell = (label, value, id) =>
       `<div class="eff-item"><span>${label}</span><span${id ? ` id="${id}"` : ''}>${value}</span></div>`;
     el.innerHTML = `<div class="eff-strip">
-      ${cell('DPS', calcDPS(hero).toLocaleString())}
-      ${cell('EHP', calcEHP(hero, (map.levelMin + map.levelMax) / 2).toLocaleString())}
-      ${cell('击杀/分', killsPerMinute(hero, map), 'stat-kpm')}
-      ${cell('经验/时', expPerHour(hero, map).toLocaleString(), 'stat-eph')}
+      ${cell('DPS', formatEffNum(calcDPS(hero)))}
+      ${cell('EHP', formatEffNum(calcEHP(hero, (map.levelMin + map.levelMax) / 2)))}
+      ${cell('击杀/分', formatEffNum(killsPerMinute(hero, map)), 'stat-kpm')}
+      ${cell('经验/时', formatEffNum(expPerHour(hero, map)), 'stat-eph')}
       ${cell('攻速', `${stats.attacksPerSec.toFixed(2)}/s`)}
       ${cell('攻击距离', stats.attackRange.toFixed(1))}
       ${cell('暴击', `${Math.round(stats.critRate * 100)}%`)}
-      ${cell('护甲', stats.armor)}
+      ${cell('护甲', formatEffNum(stats.armor))}
       ${cell(stats.resName, `${Math.floor(hero.currentRes || 0)}/${stats.maxRes}`)}
       ${cell('生命药', gameState.hpPotions || 0, 'stat-hp-pots')}
       ${cell('魔力药', gameState.manaPotions || 0, 'stat-mana-pots')}
@@ -1284,10 +1307,12 @@ function positionItemTip(anchor) {
   if (isMobileUi()) {
     const nav = document.getElementById('mobile-nav');
     const navH = nav ? nav.getBoundingClientRect().height : 52;
+    const header = document.querySelector('.header');
+    const top = header ? Math.max(8, header.getBoundingClientRect().bottom + 6) : 8;
     tip.style.left = '8px';
     tip.style.right = '8px';
     tip.style.width = 'auto';
-    tip.style.top = 'auto';
+    tip.style.top = `${top}px`;
     tip.style.bottom = `${navH + 8}px`;
     return;
   }
@@ -1479,18 +1504,20 @@ function fillBuildPop(hero) {
     + `<button type="button" class="as-opt as-off" data-act="build-sel" data-uid="">不显示推荐</button>`;
 }
 
-function placeBuildPop() {
+function placeBuildPop(anchor) {
   const pop = document.getElementById('build-pop');
-  const btn = document.querySelector('.build-cell');
+  const fromSel = lastBuildAnchorSel ? document.querySelector(lastBuildAnchorSel) : null;
+  const btn = anchor || fromSel || document.querySelector(`.char-tab[data-char="${gameState.activeCharId}"]`);
   if (!pop || !btn) return;
   const r = btn.getBoundingClientRect();
-  const w = Math.min(240, window.innerWidth - 16);
+  const w = Math.min(252, window.innerWidth - 16);
   pop.style.width = `${w}px`;
   const h = pop.offsetHeight || 220;
-  let left = r.left;
-  if (left + w > window.innerWidth - 8) left = Math.max(8, window.innerWidth - w - 8);
-  let top = r.bottom + 6;
-  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+  let left = r.left + (r.width - w) / 2;
+  if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8;
+  if (left < 8) left = 8;
+  let top = r.top - h - 8;
+  if (top < 8) top = 8;
   pop.style.left = `${left}px`;
   pop.style.top = `${top}px`;
 }
@@ -1498,18 +1525,11 @@ function placeBuildPop() {
 function renderCampGear() {
   const hero = getActiveHero(gameState);
   const invEl = document.getElementById('camp-inv');
-  document.getElementById('equip-slots').innerHTML = DOLL_SLOTS.map((row, ri) =>
-    row.map((slot, ci) => {
-      if (ri === 0 && ci === 0) {
-        const b = getHeroBuild(hero);
-        return `<button type="button" class="doll-cell build-cell ${buildPopOpen ? 'sel' : ''}" data-act="build-toggle">
-          <span class="slot-label">流派</span>
-          <span class="build-cell-name">${b ? b.name : '推荐'}</span>
-        </button>`;
-      }
+  document.getElementById('equip-slots').innerHTML = DOLL_SLOTS.map((row) =>
+    row.map((slot) => {
       if (!slot) return '<div class="doll-cell blank"></div>';
     const item = hero.equipment[slot];
-      const wornBlock = slot === 'offhand' && item && equipBlockReason(hero, item);
+      const wornBlock = slot === 'offhand' && item && equipBlockReason(hero, item, 'offhand');
       return `<div class="doll-cell ${selSlot === slot ? 'sel' : ''} ${wornBlock ? 'blocked' : ''}" data-slot="${slot}">
       <span class="slot-label">${SLOT_NAMES[slot]}</span>
         ${itemIconHtml(item, '', wornBlock)}
@@ -1810,9 +1830,10 @@ function equipmentAfterEquip(hero, item, destSlot) {
   const eq = { ...hero.equipment };
   let dest = destSlot || item.slot;
   if (isRingItem(item)) dest = destSlot === 'ring2' ? 'ring2' : 'ring1';
-  eq[dest] = { ...item, slot: dest };
-  if (item.slot === 'weapon') {
-    const chk = offhandFitsWeapon(item, eq.offhand);
+  if (item.slot === 'weapon' && destSlot === 'offhand' && canDualWield(hero)) dest = 'offhand';
+  eq[dest] = dest === 'offhand' && item.slot === 'weapon' ? { ...item } : { ...item, slot: dest };
+  if (dest === 'weapon' && item.slot === 'weapon') {
+    const chk = offhandFitsHero(hero, item, eq.offhand);
     if (!chk.ok) delete eq.offhand;
   }
   return eq;
@@ -1907,6 +1928,10 @@ function inspectCompareSetBlock(hero, bagItem) {
       <div class="set-cmp-label">若装备右戒</div>${right}
     </div>`;
   }
+  if (canDualWield(hero) && bagItem.slot === 'weapon') {
+    const dest = selSlot === 'offhand' ? 'offhand' : 'weapon';
+    return `<div class="set-cmp">${inspectCompareSetHtml(hero, bagItem, dest)}</div>`;
+  }
   return `<div class="set-cmp">${inspectCompareSetHtml(hero, bagItem, bagItem.slot)}</div>`;
 }
 
@@ -1939,11 +1964,14 @@ function inspectHtml(hero) {
   }
   const bagItem = selInvUid ? gameState.inventory.find(i => i.uid === selInvUid) : null;
   if (bagItem) {
+    const dual = canDualWield(hero) && bagItem.slot === 'weapon';
     const dest = isRingItem(bagItem)
       ? (selSlot === 'ring2' ? 'ring2' : 'ring1')
-      : (selSlot || bagItem.slot);
+      : (dual && selSlot === 'offhand' ? 'offhand' : (selSlot && itemFitsSlot(bagItem, selSlot, hero) ? selSlot : bagItem.slot));
     const worn = hero.equipment[dest];
-    const block = equipBlockReason(hero, bagItem);
+    const block = equipBlockReason(hero, bagItem, dest);
+    const blockMain = dual ? equipBlockReason(hero, bagItem, 'weapon') : block;
+    const blockOff = dual ? equipBlockReason(hero, bagItem, 'offhand') : '';
     const ring = isRingItem(bagItem);
     return `<div class="inspect-split">
       <div class="inspect-main">
@@ -1958,6 +1986,11 @@ function inspectHtml(hero) {
           <button type="button" class="btn-small ${dest === 'ring1' ? 'on' : ''}" data-act="cmpring" data-uid="ring1">比左戒</button>
           <button type="button" class="btn-small ${dest === 'ring2' ? 'on' : ''}" data-act="cmpring" data-uid="ring2">比右戒</button>
           <button type="button" class="btn-small btn-equip" data-act="equip" data-uid="${bagItem.uid}" data-slot="${dest}" ${block ? 'disabled' : ''}>装备到${SLOT_NAMES[dest]}</button>
+        ` : dual ? `
+          <button type="button" class="btn-small ${dest === 'weapon' ? 'on' : ''}" data-act="cmpwep" data-uid="weapon">比主手</button>
+          <button type="button" class="btn-small ${dest === 'offhand' ? 'on' : ''}" data-act="cmpwep" data-uid="offhand">比副手</button>
+          <button type="button" class="btn-small btn-equip" data-act="equip" data-uid="${bagItem.uid}" data-slot="weapon" ${blockMain ? 'disabled' : ''}>装备到主手</button>
+          <button type="button" class="btn-small btn-equip" data-act="equip" data-uid="${bagItem.uid}" data-slot="offhand" ${blockOff ? 'disabled' : ''} title="${blockOff || ''}">装备到副手</button>
         ` : (block
           ? `<button type="button" class="btn-small" disabled title="${block}">无法装备</button>`
           : `<button type="button" class="btn-small btn-equip" data-act="equip" data-uid="${bagItem.uid}" data-slot="${dest}">装备</button>`)}
@@ -2136,8 +2169,8 @@ function renderStatsPanel() {
   const map = getCurrentMap(hero, gameState);
   const kpm = document.getElementById('stat-kpm');
   const eph = document.getElementById('stat-eph');
-  if (kpm) kpm.textContent = killsPerMinute(hero, map);
-  if (eph) eph.textContent = expPerHour(hero, map).toLocaleString();
+  if (kpm) kpm.textContent = formatEffNum(killsPerMinute(hero, map));
+  if (eph) eph.textContent = formatEffNum(expPerHour(hero, map));
   const hpEl = document.getElementById('stat-hp-pots');
   const manaEl = document.getElementById('stat-mana-pots');
   if (hpEl) hpEl.textContent = gameState.hpPotions || 0;
@@ -2178,12 +2211,12 @@ function renderMapSelect() {
   ensureWorldDiff(gameState);
   const camp = campaignOf(gameState, hero);
   if (diffEl) {
-    const cur = getWorldDiff(gameState);
-    const dkey = WORLD_DIFFS.map(d => `${d.id}:${diffUnlocked(gameState, d.id) ? 1 : 0}`).join('|') + '|' + cur.id;
+    const cur = getWorldDiff(gameState, hero);
+    const dkey = `${hero.charId}|` + WORLD_DIFFS.map(d => `${d.id}:${diffUnlocked(gameState, d.id, hero) ? 1 : 0}`).join('|') + '|' + cur.id;
     if (diffEl.dataset.key !== dkey) {
       diffEl.dataset.key = dkey;
       diffEl.innerHTML = WORLD_DIFFS.map(d => {
-        const open = diffUnlocked(gameState, d.id);
+        const open = diffUnlocked(gameState, d.id, hero);
         const title = open
           ? `${d.name}：怪物 Lv.${d.lvMin}–${d.lvMax}，×${d.monsterMult}，掉落属性 ×${d.lootMult}`
           : `击败${WORLD_DIFFS.find(x => x.tier === d.tier - 1)?.name || '上一'}难度的巴尔后解锁`;
@@ -2191,7 +2224,7 @@ function renderMapSelect() {
       }).join('');
     } else {
       for (const btn of diffEl.querySelectorAll('.diff-tab')) {
-        const open = diffUnlocked(gameState, btn.dataset.diff);
+        const open = diffUnlocked(gameState, btn.dataset.diff, hero);
         btn.classList.toggle('active', cur.id === btn.dataset.diff);
         btn.classList.toggle('locked', !open);
       }
@@ -2201,7 +2234,7 @@ function renderMapSelect() {
   const heroAct = hero.currentMap === 'rift' ? 6 : (getMap(hero.currentMap)?.act || 1);
   if (!mapActTab || mapActFollow) mapActTab = heroAct;
 
-  const unlockKey = `${hero.charId}|${getWorldDiff(gameState).id}`;
+  const unlockKey = `${hero.charId}|${getWorldDiff(gameState, hero).id}`;
   if (!knownMapUnlocks || knownMapUnlocks.key !== unlockKey) {
     knownMapUnlocks = { key: unlockKey, ids: new Set(MAPS.filter(m => mapUnlocked(gameState, m, hero)).map(m => m.id)) };
   } else {
@@ -2246,24 +2279,32 @@ function renderMapSelect() {
 
   if (mapActTab === 6) {
     ensureRiftHero(hero);
-    const rmap = withDiffLevels(makeRiftMap(hero.riftFloor), gameState);
+    const rmap = withDiffLevels(makeRiftMap(hero.riftFloor), getWorldDiff(gameState, hero));
     const locked = !riftUnlocked(gameState, hero);
     const p = mapClearProgress(gameState, rmap, hero);
-    if (container.dataset.act !== '6' || container.childElementCount !== 1) {
+    if (container.dataset.act !== '6' || !container.querySelector('.rift-pick')) {
       container.dataset.act = '6';
-      container.innerHTML = `<button type="button" class="map-btn boss" data-map="rift">
-        <div class="map-btn-row">
-          <span class="map-name"></span>
-          <span class="map-lv"></span>
+      container.innerHTML = `<div class="rift-pick">
+        <button type="button" class="map-btn boss" data-map="rift">
+          <div class="map-btn-row">
+            <span class="map-name"></span>
+            <span class="map-lv"></span>
+          </div>
+          <span class="map-score"></span>
+          <div class="map-prog"><div class="map-prog-fill"></div></div>
+          <span class="map-hint"></span>
+          <span class="map-new-tag" hidden>新解锁</span>
+          <span class="map-new-dot" hidden></span>
+        </button>
+        <div class="rift-floor-bar">
+          <button type="button" class="rift-floor-btn" data-rift-dir="-1" aria-label="上一层">‹</button>
+          <span class="rift-floor-lab"></span>
+          <button type="button" class="rift-floor-btn" data-rift-dir="1" aria-label="下一层">›</button>
         </div>
-        <span class="map-score"></span>
-        <div class="map-prog"><div class="map-prog-fill"></div></div>
-        <span class="map-hint"></span>
-        <span class="map-new-tag" hidden>新解锁</span>
-        <span class="map-new-dot" hidden></span>
-    </button>`;
+      </div>`;
     }
-    const btn = container.children[0];
+    const btn = container.querySelector('[data-map="rift"]');
+    const openMax = riftHighestOpen(hero);
     const isNew = !locked && !camp.mapsEntered.rift && hero.currentMap !== 'rift';
     btn.classList.toggle('locked', locked);
     btn.classList.toggle('cleared', false);
@@ -2274,7 +2315,13 @@ function renderMapSelect() {
     btn.querySelector('.map-prog-fill').style.width = `${locked ? 0 : p.pct}%`;
     btn.querySelector('.map-hint').textContent = locked
       ? '未解锁 · 需开放世界之石要塞'
-      : (hero.riftBossReady ? '守护者就绪' : (hero.currentMap === 'rift' ? `${p.have}/${p.need}` : '打怪积攒进度，满后刷新强力首领'));
+      : (hero.riftBossReady ? '守护者就绪' : (hero.currentMap === 'rift' ? `${p.have}/${p.need}` : '1层等同本章巴尔，层数无上限'));
+    const lab = container.querySelector('.rift-floor-lab');
+    if (lab) lab.textContent = locked ? '未解锁' : `第 ${hero.riftFloor} 层 / 可挑战 ${openMax}`;
+    const prevBtn = container.querySelector('[data-rift-dir="-1"]');
+    const nextBtn = container.querySelector('[data-rift-dir="1"]');
+    if (prevBtn) prevBtn.disabled = locked || hero.riftFloor <= 1;
+    if (nextBtn) nextBtn.disabled = locked || hero.riftFloor >= openMax;
     const tag = btn.querySelector('.map-new-tag');
     const dot = btn.querySelector('.map-new-dot');
     if (tag) tag.hidden = !isNew;
@@ -2302,7 +2349,7 @@ function renderMapSelect() {
   }
 
   visible.forEach((raw, i) => {
-    const map = withDiffLevels(raw, gameState);
+    const map = withDiffLevels(raw, getWorldDiff(gameState, hero));
     const btn = container.children[i];
     const locked = !mapUnlocked(gameState, raw, hero);
     const p = mapClearProgress(gameState, map, hero);
@@ -2451,38 +2498,73 @@ function itemLine(item, opts = {}) {
   return { q, affixHtml, morphStr, setStr };
 }
 
+function markCharSeen(id) {
+  if (!id) return;
+  gameState.seenChars = gameState.seenChars || [];
+  if (!gameState.seenChars.includes(id)) gameState.seenChars.push(id);
+}
+
+function isNewUnlockedChar(id) {
+  if (!(gameState.unlockedChars || []).includes(id)) return false;
+  return !(gameState.seenChars || []).includes(id);
+}
+
 function switchActiveChar(id) {
-  if (!id || gameState.activeCharId === id) return;
+  if (!id) return;
   if (!(gameState.unlockedChars || []).includes(id) || !gameState.heroes[id]) return;
-  gameState.activeCharId = id;
-  syncCampaignAlias(gameState);
-  knownMapUnlocks = null;
-  mapActFollow = true;
-  mapActTab = 0;
-  hideItemTip();
-  selSlot = 'weapon';
-  selInvUid = null;
-  selInvUids = new Set();
-  lastCampSig = '';
-  renderCharTabs();
-  const nameEl = document.getElementById('hero-name');
-  if (nameEl) nameEl.textContent = `${CHARACTERS[id]?.name || id}`;
-  requestAnimationFrame(() => {
+  markCharSeen(id);
+  const switching = gameState.activeCharId !== id;
+  if (switching) {
+    gameState.activeCharId = id;
+    ensureWorldDiff(gameState);
+    syncCampaignAlias(gameState);
+    knownMapUnlocks = null;
+    mapActFollow = true;
+    mapActTab = 0;
+    hideItemTip();
+    selSlot = 'weapon';
+    selInvUid = null;
+    selInvUids = new Set();
+    lastCampSig = '';
+    renderCharTabs();
+    const nameEl = document.getElementById('hero-name');
+    if (nameEl) nameEl.textContent = `${CHARACTERS[id]?.name || id}`;
+  }
+  lastBuildAnchorSel = `.char-tab[data-char="${id}"]`;
+  buildPopOpen = true;
+  autosellOpen = false;
+  document.getElementById('autosell-pop')?.setAttribute('hidden', '');
+  const finish = () => {
     if (gameState.activeCharId !== id) return;
     const nh = getActiveHero(gameState);
-    nh.currentHp = calcHeroStats(nh).maxHp;
-    clampHeroResource(nh);
-    resetFieldForZone();
+    if (switching) {
+      nh.currentHp = calcHeroStats(nh).maxHp;
+      clampHeroResource(nh);
+      resetFieldForZone();
+    }
     renderAll();
-  });
+    placeBuildPop();
+  };
+  if (switching) requestAnimationFrame(finish);
+  else {
+    lastCampSig = '';
+    finish();
+  }
 }
 
 function charTabInner(tab, unlocked, active) {
-  const hint = unlocked ? (CHARACTERS[tab.id]?.name || tab.short) : classUnlockHint(tab.id);
-  const state = unlocked
-    ? `<span class="char-tab-state">${active ? '出战' : '挂机'}</span>`
-    : `<span class="char-tab-lock">未解锁</span><span class="char-tab-need">${hint}</span>`;
-  return `<span class="char-tab-name">${tab.short}</span>${state}`;
+  const name = tab.short;
+  const isNew = unlocked && isNewUnlockedChar(tab.id);
+  const dot = isNew ? '<span class="char-tab-dot"></span>' : '';
+  if (!unlocked) {
+    return `<span class="char-tab-line">${name}</span>
+      <span class="char-tab-lock">未解锁</span>
+      <span class="char-tab-need">${classUnlockHint(tab.id)}</span>${dot}`;
+  }
+  const build = getHeroBuild(gameState.heroes[tab.id]);
+  return `<span class="char-tab-line">${name}</span>
+    <span class="char-tab-state">${active ? '出战' : '挂机'}</span>
+    <span class="char-tab-build">${build ? build.name : '未选'}</span>${dot}`;
 }
 
 function renderCharTabs() {
@@ -2496,7 +2578,8 @@ function renderCharTabs() {
       const unlocked = (gameState.unlockedChars || []).includes(tab.id);
       const active = gameState.activeCharId === tab.id;
       const hint = unlocked ? (CHARACTERS[tab.id]?.name || tab.short) : classUnlockHint(tab.id);
-      const cls = `char-tab${active ? ' on' : ''}${unlocked ? ' open' : ' locked'}`;
+      const isNew = isNewUnlockedChar(tab.id);
+      const cls = `char-tab${active ? ' on' : ''}${unlocked ? ' open' : ' locked'}${isNew ? ' char-new' : ''}`;
       return `<button type="button" class="${cls}" data-char="${tab.id}" title="${hint}" aria-disabled="${unlocked ? 'false' : 'true'}">${charTabInner(tab, unlocked, active)}</button>`;
     }).join('');
     return;
@@ -2507,12 +2590,15 @@ function renderCharTabs() {
     const unlocked = (gameState.unlockedChars || []).includes(tab.id);
     const active = gameState.activeCharId === tab.id;
     const hint = unlocked ? (CHARACTERS[tab.id]?.name || tab.short) : classUnlockHint(tab.id);
-  const vis = `${unlocked ? 1 : 0}|${active ? 1 : 0}`;
+    const build = getHeroBuild(gameState.heroes[tab.id]);
+    const isNew = isNewUnlockedChar(tab.id);
+    const vis = `${unlocked ? 1 : 0}|${active ? 1 : 0}|${build?.id || ''}|${isNew ? 1 : 0}`;
     if (btn.dataset.vis === vis) continue;
     btn.dataset.vis = vis;
     btn.classList.toggle('on', active);
     btn.classList.toggle('open', unlocked);
     btn.classList.toggle('locked', !unlocked);
+    btn.classList.toggle('char-new', isNew);
     btn.title = hint;
     btn.setAttribute('aria-disabled', unlocked ? 'false' : 'true');
     btn.innerHTML = charTabInner(tab, unlocked, active);

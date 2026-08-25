@@ -177,7 +177,7 @@ function spawnPack(map) {
   if (map?.isRift && hero) {
     ensureRiftHero(hero);
     if (hero.riftBossReady) {
-      const g = createRiftGuardian(map, { worldMult: worldMonsterMult(gameState) });
+      const g = createRiftGuardian(map, { worldMult: worldMonsterMult(gameState, hero) });
       combat.monsters = [g];
       combat.target = g;
       combat.attackTimer = 0.4;

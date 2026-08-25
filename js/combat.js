@@ -1118,15 +1118,17 @@ function createMonster(map, opts = {}) {
   let name = prefix ? `${prefix} ${mdef.name}` : mdef.name;
   if (kind === 'hidden') name = `隐藏·${mdef.name}`;
   if (ranged) dmg *= 0.82;
+  let armor = ms.armor;
   if (map.isRift) {
-    const diff = riftDifficultyMult(map.riftFloor);
+    const diff = riftDifficultyMult(map.riftFloor, kind);
     hp *= diff;
     dmg *= diff;
+    armor *= diff;
   }
   return applyWorldMonsterMult({
     name, level,
     hp: Math.floor(hp), maxHp: Math.floor(hp),
-    damage: Math.floor(dmg), armor: ms.armor,
+    damage: Math.floor(dmg), armor: Math.floor(armor),
     exp: Math.floor(ms.exp * t.exp), gold: Math.floor(ms.gold * t.exp * (kind === 'hidden' ? 1.4 : 0.6)),
     isBoss: false, kind, race: mdef.race,
     resistances: { ...race.res },
@@ -1291,12 +1293,12 @@ function grantKillExp(hero, raw, monsterLevel) {
 }
 
 function riftProgressNeed(floor) {
-  return 70 + Math.min(50, Math.max(0, (floor || 1) - 1) * 2);
+  return 70 + Math.max(0, (Math.max(1, floor || 1) - 1) * 2);
 }
 
 function makeRiftMap(floor) {
-  const f = Math.max(1, Math.floor(floor || 1));
-  const bump = (f - 1) * 6;
+  const f = Math.max(1, Math.floor(Number(floor) || 1));
+  const bump = f - 1;
   const ws = MAPS.find(m => m.id === 'worldstone');
   return {
     id: 'rift',
@@ -1304,11 +1306,11 @@ function makeRiftMap(floor) {
     act: 6,
     isRift: true,
     riftFloor: f,
-    levelMin: 80 + bump,
-    levelMax: 88 + bump,
-    tiles: 'crypt',
-    packMin: 4,
-    packMax: 6,
+    levelMin: (ws?.levelMin ?? 80) + bump,
+    levelMax: (ws?.levelMax ?? 88) + bump,
+    tiles: ws?.tiles || 'crypt',
+    packMin: ws?.packMin || 3,
+    packMax: ws?.packMax || 5,
     clearKills: riftProgressNeed(f),
     monsters: (ws?.monsters || []).concat([
       { name: '秘境魔', race: 'demon' },
@@ -1320,8 +1322,8 @@ function makeRiftMap(floor) {
 function createRiftGuardian(map, opts = {}) {
   const f = Math.max(1, map?.riftFloor || 1);
   const baal = BOSSES.baal;
-  const diff = riftDifficultyMult(f);
-  const nativeLv = 88 + (f - 1) * 6;
+  const diff = riftDifficultyMult(f, 'riftBoss');
+  const nativeLv = Math.max(1, baal.level || 84);
   const level = map
     ? Math.round(((map.levelMin || nativeLv) + (map.levelMax || nativeLv)) / 2)
     : nativeLv;
@@ -1329,26 +1331,27 @@ function createRiftGuardian(map, opts = {}) {
   const to = monsterStats(level);
   const hpScale = to.hp / Math.max(1, from.hp);
   const dmgScale = to.damage / Math.max(1, from.damage);
-  const hp = Math.floor(baal.hp * 1.08 * diff * hpScale);
-  const dmg = Math.floor(baal.damage * 1.08 * diff * dmgScale);
+  const armScale = to.armor / Math.max(1, from.armor || 1);
+  const hp = Math.floor(baal.hp * diff * hpScale);
+  const dmg = Math.floor(baal.damage * diff * dmgScale);
   return applyWorldMonsterMult({
-    name: `秘境守护者`,
+    name: '秘境守护者',
     level,
     hp, maxHp: hp,
     damage: dmg,
-    armor: Math.floor(baal.armor * diff * (to.armor / Math.max(1, from.armor || 1))),
+    armor: Math.floor(baal.armor * diff * armScale),
     resistances: { ...(baal.resistances || {}) },
     isBoss: true,
     riftBoss: true,
     kind: 'riftBoss',
     race: baal.race || 'demon',
     phase: 1,
-    eliteAffixes: rollEliteAffixes(2),
+    eliteAffixes: f > 1 ? rollEliteAffixes(2) : [],
     iso: { x: 8.2, y: 4.2 },
-    attackTimer: 1.6,
+    attackTimer: 1.8,
     ranged: false,
-    attackRange: 1.55,
-    moveSpeed: 1.85,
+    attackRange: 1.5,
+    moveSpeed: 1.8,
     exp: 120 + f * 18,
   }, opts.worldMult);
 }

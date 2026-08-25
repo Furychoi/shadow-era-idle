@@ -157,11 +157,12 @@ const CHAR_TABS = [
 const CHARACTERS = {
   berserker: {
     id: 'berserker', name: '狂战士', mainStat: 'str', icon: '斧',
-    desc: '近战物理、怒气旋风、战吼减伤',
+    desc: '近战物理、怒气旋风、战吼减伤，可双持近战武器',
     unlock: null, palette: ['#6a3030', '#c45a3a', '#e8c090'],
     baseHp: 130, baseDamage: 16, baseArmor: 9, attackInterval: 1.15, attackRange: 1.35,
     resource: { id: 'rage', name: '怒气', color: '#e05030', maxBase: 100, regen: 4, startFull: false, onHit: 6, onKill: 5 },
     weaponClasses: ['melee'],
+    dualWield: true,
   },
   amazon: {
     id: 'amazon', name: '亚马逊', mainStat: 'agi', icon: '弓',
@@ -189,11 +190,12 @@ const CHARACTERS = {
   },
   assassin: {
     id: 'assassin', name: '暗影刺客', mainStat: 'agi', icon: '刺',
-    desc: '陷阱铺场、武学聚气、影子分身',
+    desc: '陷阱铺场、武学聚气、影子分身，可双持拳刃',
     unlock: { type: 'act', diffId: 'hard', act: 3 }, palette: ['#1a1a2a', '#4a3a6a', '#c0a0d0'],
     baseHp: 88, baseDamage: 15, baseArmor: 5, attackInterval: 0.9, attackRange: 1.5,
     resource: { id: 'energy', name: '能量', color: '#d4a040', maxBase: 100, regen: 18, startFull: true },
     weaponClasses: ['claw'],
+    dualWield: true,
   },
   paladin: {
     id: 'paladin', name: '圣骑士', mainStat: 'str', icon: '圣',
