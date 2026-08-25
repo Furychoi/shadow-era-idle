@@ -35,24 +35,121 @@ function synergyMult(hero, skill) {
   return 1 + Math.min(add, 2.8);
 }
 
+function morphAppliesToHero(hero, item) {
+  if (!hero || !item?.morphId) return false;
+  const def = MORPHS[item.morphId];
+  if (!def) return false;
+  if (item.reqClass && item.reqClass !== hero.charId) return false;
+  if (def.reqClass && def.reqClass !== hero.charId) return false;
+  if (def.classes && !def.classes.includes(hero.charId)) return false;
+  return true;
+}
+
 function getEquippedMorphs(hero) {
   const morphs = [];
   for (const item of Object.values(hero.equipment || {})) {
-    if (item?.morphId) {
-      morphs.push({
-        id: item.morphId,
-        skillId: item.morphSkill || null,
-        def: MORPHS[item.morphId],
-        itemName: item.name,
-      });
-    }
+    if (!morphAppliesToHero(hero, item)) continue;
+    morphs.push({
+      id: item.morphId,
+      skillId: item.morphSkill || null,
+      def: MORPHS[item.morphId],
+      itemName: item.name,
+    });
   }
   return morphs;
 }
 
 function morphForSkill(hero, skillId) {
   const list = getEquippedMorphs(hero);
-  return list.find(m => m.skillId === skillId) || list.find(m => !m.skillId) || null;
+  return list.find(m => m.skillId === skillId) || null;
+}
+
+function equipmentSetReduce(equipment) {
+  let n = 0;
+  for (const item of Object.values(equipment || {})) {
+    n += item?.itemPower?.setReqReduce || 0;
+  }
+  return n;
+}
+
+function setPiecesNeeded(need, reduce) {
+  const n = parseInt(need, 10) || 0;
+  return Math.max(2, n - (reduce || 0));
+}
+
+function setBonusEntries(def) {
+  return Object.entries(def?.bonuses || {}).sort((a, b) => (parseInt(a[0], 10) || 0) - (parseInt(b[0], 10) || 0));
+}
+
+function setBonusActive(count, need, reduce) {
+  return (count || 0) >= setPiecesNeeded(need, reduce);
+}
+
+function ensurePowerMaps(stats) {
+  if (!stats) return;
+  stats.skillHits = stats.skillHits || {};
+  stats.skillNova = stats.skillNova || {};
+  stats.skillTrail = stats.skillTrail || {};
+  stats.skillPierce = stats.skillPierce || {};
+  stats.skillConvert = stats.skillConvert || {};
+  stats.echoSkill = stats.echoSkill || {};
+  stats.setReqReduce = stats.setReqReduce || 0;
+}
+
+function applyPowerBlob(stats, blob) {
+  if (!blob || !stats) return;
+  ensurePowerMaps(stats);
+  if (blob.setReqReduce) stats.setReqReduce += blob.setReqReduce;
+  if (blob.shapecast) stats.shapecast = true;
+  if (blob.windowBonus) stats.windowBonus = (stats.windowBonus || 0) + blob.windowBonus;
+  if (blob.wwLifesteal) stats.wwLifesteal = (stats.wwLifesteal || 0) + blob.wwLifesteal;
+  if (blob.enemyResDown) stats.enemyResDown = (stats.enemyResDown || 0) + blob.enemyResDown;
+  if (blob.procEquipped) stats.procEquipped = true;
+  if (blob.onHitCast) stats.onHitCast = blob.onHitCast;
+  if (blob.killReset) stats.killReset = blob.killReset;
+  if (blob.skillHits) mergeSkillMap(stats.skillHits, blob.skillHits, 'add');
+  if (blob.echoSkill) Object.assign(stats.echoSkill, blob.echoSkill);
+  if (blob.skillNova) {
+    for (const id of Object.keys(blob.skillNova)) {
+      if (blob.skillNova[id]) stats.skillNova[id] = true;
+    }
+  }
+  if (blob.skillTrail) {
+    for (const id of Object.keys(blob.skillTrail)) {
+      if (blob.skillTrail[id]) stats.skillTrail[id] = true;
+    }
+  }
+  if (blob.skillPierce) {
+    for (const id of Object.keys(blob.skillPierce)) {
+      if (blob.skillPierce[id]) stats.skillPierce[id] = true;
+    }
+  }
+  if (blob.skillConvert) Object.assign(stats.skillConvert, blob.skillConvert);
+}
+
+function applyMorphPower(stats, morphId, skillId) {
+  ensurePowerMaps(stats);
+  const sid = skillId;
+  switch (morphId) {
+    case 'nova': if (sid) stats.skillNova[sid] = true; break;
+    case 'split': if (sid) stats.skillHits[sid] = (stats.skillHits[sid] || 0) + 2; break;
+    case 'chain': if (sid) stats.skillHits[sid] = (stats.skillHits[sid] || 0) + 2; break;
+    case 'pierce': if (sid) stats.skillPierce[sid] = true; break;
+    case 'trail': if (sid) stats.skillTrail[sid] = true; break;
+    case 'convert': if (sid) stats.skillConvert[sid] = 'fire'; break;
+    case 'proc': stats.onHitCast = { skillId: sid || null, chance: 0.2, coeff: 0.5 }; break;
+    case 'reset': if (sid) stats.killReset = sid; break;
+    case 'shapecast': stats.shapecast = true; break;
+    case 'window': stats.windowBonus = (stats.windowBonus || 0) + 1.5; break;
+    default: break;
+  }
+}
+
+function applyEquippedMorphs(stats, hero) {
+  for (const item of Object.values(hero.equipment || {})) {
+    if (!morphAppliesToHero(hero, item)) continue;
+    applyMorphPower(stats, item.morphId, item.morphSkill);
+  }
 }
 
 function calcHeroStats(hero, opts = {}) {
@@ -77,6 +174,7 @@ function calcHeroStats(hero, opts = {}) {
     lifeRegen: 0, killHeal: 0, lifesteal: 0,
     damageReduction: 0, allRes: 0,
     skillLevelBonus: 0,
+    hitChance: 0,
     pierceBonus: 0,
     summonBonus: 0,
     eliteDmgPct: 0,
@@ -98,6 +196,19 @@ function calcHeroStats(hero, opts = {}) {
     skillGrant: {},
     skillDmg: {},
     skillCostPct: {},
+    skillHits: {},
+    skillNova: {},
+    skillTrail: {},
+    skillPierce: {},
+    skillConvert: {},
+    echoSkill: {},
+    setReqReduce: 0,
+    shapecast: false,
+    windowBonus: 0,
+    wwLifesteal: 0,
+    procEquipped: false,
+    onHitCast: null,
+    killReset: null,
     attackRange: charDef.attackRange || 1.4,
     rangePct: 0,
     attackInterval: charDef.attackInterval * 2.55,
@@ -110,21 +221,15 @@ function calcHeroStats(hero, opts = {}) {
 
   stats.maxHp = charDef.baseHp + level * 8 + stats.vit * 2;
 
-  const skillLevels = hero.skillLevels || {};
-  for (const [skillId, lv] of Object.entries(skillLevels)) {
-    if (lv <= 0) continue;
-    const skill = SKILLS[hero.charId]?.[skillId];
-    if (!skill) continue;
-    if (skill.type === 'buff' && useLive && !isBuffActive(liveBuffs, skillId)) continue;
-    if (skill.type === 'aura' && !isAuraOn(hero, skillId)) continue;
-    applySkillStatBonuses(stats, skill, lv);
-  }
-
   for (const item of Object.values(hero.equipment || {})) {
     if (!item) continue;
     applyItemStats(stats, item);
+    if (item.itemPower) applyPowerBlob(stats, item.itemPower);
   }
+  stats.setReqReduce = Math.min(1, stats.setReqReduce || 0);
   applySetBonuses(stats, hero.equipment);
+  applyEquippedMorphs(stats, hero);
+  applyLearnedSkillStats(hero, stats, { useLive, liveBuffs });
 
   stats.physDmgPct += (reso.dmg - 1) * 0.5;
   stats.pierceBonus += reso.pierce * 0.15;
@@ -159,7 +264,41 @@ function calcHeroStats(hero, opts = {}) {
   stats.attackInterval = 1 / stats.attacksPerSec;
   stats.damageReduction = Math.min(0.75, stats.damageReduction);
   applyResourceStats(stats, hero);
+  applyCritOverflow(stats);
   return stats;
+}
+
+function applyCritOverflow(stats) {
+  if (stats.critRate > 1) {
+    stats.critDmg += (stats.critRate - 1) * 2;
+    stats.critRate = 1;
+  }
+}
+
+function applyLearnedSkillStats(hero, stats, opts = {}) {
+  const tree = SKILLS[hero.charId] || {};
+  const levels = hero.skillLevels || {};
+  const useLive = !!opts.useLive;
+  const liveBuffs = opts.liveBuffs || {};
+  const active = (id, skill) => {
+    if (!skill) return false;
+    if ((levels[id] || 0) <= 0 && !(stats.skillGrant?.[id] > 0)) return false;
+    if (skill.type !== 'aura' && !isSkillEnabled(hero, id)) return false;
+    if (skill.type === 'buff' && useLive && !isBuffActive(liveBuffs, id)) return false;
+    if (skill.type === 'aura' && !isAuraOn(hero, id)) return false;
+    return true;
+  };
+  for (const [id, skill] of Object.entries(tree)) {
+    if (!skill?.skillBonus || !active(id, skill)) continue;
+    const invested = Math.max(levels[id] || 0, stats.skillGrant?.[id] || 0);
+    stats.skillLevelBonus += skillBonusGranted(skill, invested);
+  }
+  for (const [id, skill] of Object.entries(tree)) {
+    if (!active(id, skill)) continue;
+    const lv = effectiveSkillLevel(hero, id, stats);
+    if (lv <= 0) continue;
+    applySkillStatBonuses(stats, skill, lv, { skipSkillBonus: true });
+  }
 }
 
 function classResource(charId) {
@@ -234,10 +373,24 @@ function skillResGain(hero, skill) {
   return 0;
 }
 
+function isCombatCastSkill(skill) {
+  if (!skill || skill.type !== 'active') return false;
+  if (skill.tree === 'warcry') return false;
+  return (skill.damageMult || 0) > 0
+    || !!skill.channel
+    || !!skill.duration
+    || !!skill.plantSummon
+    || !!skill.curse;
+}
+
 function isCoreCombatSkill(skill) {
-  if (!skill) return false;
+  if (!isCombatCastSkill(skill)) return false;
   if (skill.channel || skill.tree === 'combat') return true;
-  return (skill.damageMult || 0) >= 1;
+  if (skill.duration || skill.plantSummon || skill.curse) return true;
+  if ((skill.tags || []).includes('opener')) return true;
+  if ((skill.tags || []).includes('trap')) return true;
+  if ((skill.hits || 0) > 1) return true;
+  return (skill.damageMult || 0) >= 0.7;
 }
 
 function pickReadySkill(hero, ready) {
@@ -277,11 +430,12 @@ function skillBonusBreakdown(hero, opts = {}) {
     if (add) parts.push({ id, name: skill.name, add });
   }
   for (const s of getSetStatus(hero.equipment)) {
-    for (const [n, bonus] of Object.entries(s.def.bonuses || {})) {
-      if (s.count >= parseInt(n, 10) && bonus.skillLevel) {
+      const reduce = equipmentSetReduce(hero.equipment);
+    for (const [n, bonus] of setBonusEntries(s.def)) {
+      if (setBonusActive(s.count, n, reduce) && bonus.skillLevel) {
         parts.push({ name: `${s.def.name}${n}件`, add: bonus.skillLevel });
       }
-      if (s.count >= parseInt(n, 10) && bonus.skillGrant) {
+      if (setBonusActive(s.count, n, reduce) && bonus.skillGrant) {
         for (const [id, lv] of Object.entries(bonus.skillGrant)) {
           const nm = SKILLS[hero.charId]?.[id]?.name || id;
           parts.push({ name: `${s.def.name}${n}件授予${nm}`, add: lv });
@@ -381,7 +535,22 @@ function skillEffectLines(hero, skill, parts, stats) {
       : `护甲 每级 +${fmtSkillPct(skill.armorBonus)}`);
   }
   if (skill.lifesteal) lines.push(nowPer('吸血', skill.lifesteal));
-  if (skill.critBonus) lines.push(nowPer('暴击率', skill.critBonus));
+  if (skill.critBonus) {
+    const cap = 0.25;
+    const raw = skill.critBonus * lv;
+    const now = Math.min(cap, raw);
+    const overflowDmg = skill.type === 'passive' && raw > cap ? (raw - cap) * 2 : 0;
+    let line = lv > 0
+      ? `暴击率 +${fmtSkillPct(now)}（每级 +${fmtSkillPct(skill.critBonus)}，最多 +${fmtSkillPct(cap)}）`
+      : `暴击率 每级 +${fmtSkillPct(skill.critBonus)}，最多 +${fmtSkillPct(cap)}`;
+    if (skill.type === 'passive') {
+      line += overflowDmg > 0
+        ? `；溢出转暴伤 +${fmtSkillPct(overflowDmg)}`
+        : '；超出部分 ×2 转为暴击伤害';
+    }
+    lines.push(line);
+  }
+  if (skill.hitChance) lines.push(nowPer('命中', skill.hitChance));
   if (skill.attackSpeed) lines.push(nowPer('攻速', skill.attackSpeed));
   if (skill.damageReduction) lines.push(nowPer('减伤', skill.damageReduction));
   if (skill.shieldPct) lines.push(nowPer('护盾减伤', skill.shieldPct));
@@ -567,18 +736,28 @@ function isBuffActive(buffs, skillId) {
   return (b.t || 0) > 0;
 }
 
-function applySkillStatBonuses(stats, skill, lv) {
+function applySkillStatBonuses(stats, skill, lv, opts = {}) {
   if (skill.damageBonus) stats.physDmgPct += skill.damageBonus * lv;
   if (skill.armorBonus) stats.armor *= (1 + skill.armorBonus * lv);
   if (skill.hpBonus) stats.maxHp *= (1 + skill.hpBonus * lv);
   if (skill.lifesteal) stats.lifesteal += skill.lifesteal * lv;
   if (skill.damageReduction) stats.damageReduction += skill.damageReduction * Math.max(lv, 1);
-  if (skill.critBonus) stats.critRate += skill.critBonus * lv;
+  if (skill.critBonus) {
+    const raw = skill.critBonus * lv;
+    if (skill.type === 'passive') {
+      const cap = 0.25;
+      stats.critRate += Math.min(cap, raw);
+      if (raw > cap) stats.critDmg += (raw - cap) * 2;
+    } else {
+      stats.critRate += raw;
+    }
+  }
+  if (skill.hitChance) stats.hitChance = (stats.hitChance || 0) + skill.hitChance * lv;
   if (skill.pierceBonus) stats.pierceBonus += skill.pierceBonus * lv;
   if (skill.summonBonus) stats.summonBonus += skill.summonBonus * lv;
   if (skill.attackSpeed) stats.attackSpeed += skill.attackSpeed * lv;
   if (skill.allResBonus) stats.allRes += skill.allResBonus * lv;
-  if (skill.skillBonus) stats.skillLevelBonus += skillBonusGranted(skill, lv);
+  if (skill.skillBonus && !opts.skipSkillBonus) stats.skillLevelBonus += skillBonusGranted(skill, lv);
   if (skill.rangeBonus) stats.attackRange += skill.rangeBonus * lv;
   if (skill.shieldPct) stats.damageReduction += skill.shieldPct * lv;
   if (skill.fireDmgBonus) stats.fireDmgPct += skill.fireDmgBonus * lv;
@@ -667,11 +846,12 @@ function applySetBonuses(stats, equipment) {
   for (const item of Object.values(equipment || {})) {
     if (item?.setId) setCounts[item.setId] = (setCounts[item.setId] || 0) + 1;
   }
+  const reduce = stats.setReqReduce || equipmentSetReduce(equipment);
   for (const [setId, count] of Object.entries(setCounts)) {
     const setDef = SETS[setId];
     if (!setDef) continue;
-    for (const [pieces, bonus] of Object.entries(setDef.bonuses)) {
-      if (count >= parseInt(pieces, 10)) {
+    for (const [pieces, bonus] of setBonusEntries(setDef)) {
+      if (setBonusActive(count, pieces, reduce)) {
         if (bonus.attackSpeed) stats.attackSpeed += bonus.attackSpeed;
         if (bonus.hp) stats.maxHp += bonus.hp;
         if (bonus.skillLevel) stats.skillLevelBonus += bonus.skillLevel;
@@ -698,6 +878,7 @@ function applySetBonuses(stats, equipment) {
         if (bonus.skillGrant) mergeSkillMap(stats.skillGrant, bonus.skillGrant, 'max');
         if (bonus.skillDmg) mergeSkillMap(stats.skillDmg, bonus.skillDmg, 'add');
         if (bonus.skillCostPct) mergeSkillMap(stats.skillCostPct, bonus.skillCostPct, 'add');
+        if (bonus.power) applyPowerBlob(stats, bonus.power);
       }
     }
   }
@@ -748,14 +929,16 @@ function calcDamage(hero, monster, skill = null) {
     element = skill.element || 'physical';
     hits = skill.hits || 1;
     aoe = !!skill.aoe;
-    const morph = morphForSkill(hero, skill.id);
-    if (morph) {
-      if (morph.id === 'nova') { aoe = true; skillMult *= 0.85; }
-      if (morph.id === 'split') hits += 2;
-      if (morph.id === 'chain') hits += 2;
-      if (morph.id === 'pierce') skillMult *= 0.85 + stats.pierceBonus;
-      if (morph.id === 'convert') element = 'fire';
-      if (morph.id === 'trail') skillMult *= 1.15;
+    hits += stats.skillHits?.[skill.id] || 0;
+    if (stats.skillNova?.[skill.id]) { aoe = true; skillMult *= 0.9; }
+    if (stats.skillTrail?.[skill.id]) skillMult *= 1.18;
+    if (stats.skillPierce?.[skill.id]) skillMult *= 0.85 + stats.pierceBonus;
+    if (stats.skillConvert?.[skill.id]) element = stats.skillConvert[skill.id];
+    if ((skill.tags || []).includes('finisher')) {
+      const cw = (typeof combat !== 'undefined' && combat?.comboWindow)
+        || (typeof combatState !== 'undefined' && combatState?.comboWindow)
+        || 0;
+      if (cw > 0) skillMult *= 1.12 + Math.min(0.12, (stats.windowBonus || 0) * 0.04);
     }
     if (skill.static && monster.isBoss) skillMult *= 0.35;
     if (skill.id === 'zeal' && (stats.zealExtra || 0) > 0) hits += stats.zealExtra;
@@ -773,7 +956,12 @@ function calcDamage(hero, monster, skill = null) {
   if (element === 'poison') dmgBonus += stats.poisonDmgPct;
 
   let damage = stats.damage * (1 + mainStat / 100) * skillMult * (1 + dmgBonus) * hits;
-  const isCrit = Math.random() < stats.critRate;
+  const gap = (monster.level || 1) - (hero.level || 1);
+  const miss = Math.min(0.42, Math.max(0, 0.05 + gap * 0.01 - (stats.hitChance || 0)));
+  if (Math.random() < miss) {
+    return { damage: 0, isCrit: false, miss: true, element, aoe };
+  }
+  const isCrit = Math.random() < Math.min(1, stats.critRate);
   if (isCrit) damage *= stats.critDmg;
   if (monster.kind === 'rare' || monster.kind === 'rareBoss' || monster.kind === 'hidden' || monster.isBoss || monster.kind === 'elite') {
     damage *= 1 + (stats.eliteDmgPct || 0);
@@ -1028,8 +1216,10 @@ function skillVfxKind(skill) {
   if (skill.id === 'whirlwind' || skill.channel) return 'spin';
   if (skill.id === 'meteor' || skill.id === 'fistOfHeavens') return 'meteor';
   if (skill.id === 'blizzard') return 'blizzard';
-  if (skill.id === 'hurricane' || skill.id === 'fireWall' || skill.id === 'thunderstorm') return 'storm';
+  if (skill.id === 'fireWall' || skill.id === 'wakeOfFire' || skill.id === 'fissure') return 'firewall';
+  if (skill.id === 'hurricane' || skill.id === 'thunderstorm') return 'storm';
   if (skill.plantSummon || skill.id === 'hydra') return 'trap';
+  if (skill.id === 'chargedBolt') return 'bolts';
   if (tags.includes('projectile') || skill.chain) return 'proj';
   if (tags.includes('aoe') && (skill.element === 'ice' || skill.element === 'poison' || tags.includes('control'))) return 'nova';
   if (tags.includes('trap')) return 'trap';

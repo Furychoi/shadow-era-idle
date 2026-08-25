@@ -394,6 +394,7 @@ body {
   min-height: 0;
   overflow-y: auto;
 }
+.char-tab > * { pointer-events: none; }
 .char-tab {
   display: flex;
   flex-direction: column;
@@ -411,6 +412,8 @@ body {
   cursor: pointer;
   line-height: 1.2;
   box-shadow: inset 0 1px 0 rgba(255, 220, 140, 0.08);
+  touch-action: manipulation;
+  min-height: 44px;
 }
 .char-tab-name { color: #fff4d8; }
 .char-tab-state {
@@ -919,7 +922,46 @@ body {
   justify-content: center;
   padding: 3px;
 }
-.doll-cell.blank { background: transparent; border: none; pointer-events: none; min-height: 8px; }
+.doll-cell.build-cell {
+  pointer-events: auto;
+  border-color: #6a5830;
+  background: #1a1610;
+  gap: 2px;
+  min-height: 52px;
+  cursor: pointer;
+}
+.doll-cell.build-cell .build-cell-name {
+  font-size: 0.58rem;
+  line-height: 1.15;
+  color: #f0d48a;
+  text-align: center;
+  font-weight: 700;
+  max-width: 100%;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.build-pop-title {
+  font-size: 0.72rem;
+  color: var(--gold);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.rec-mark {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 8px;
+  line-height: 1;
+  font-weight: 800;
+  color: #1a1208;
+  background: #ffc24a;
+  padding: 1px 2px;
+  border-radius: 0 0 0 3px;
+  pointer-events: none;
+  z-index: 2;
+}
 .doll-cell:hover { border-color: var(--accent); }
 .doll-cell.sel { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
 .doll-cell .slot-label { font-size: 0.6rem; line-height: 1; }
@@ -1477,6 +1519,8 @@ label.hint { display: block; margin: 8px 0; }
 .stat-value { display: block; font-size: 1.1rem; font-weight: 700; color: var(--text-bright); }
 
 .map-select { margin-top: 4px; }
+.act-tab, .map-btn { touch-action: manipulation; }
+.map-btn > *, .act-tab > * { pointer-events: none; }
 
 .diff-select {
   display: grid;
@@ -1492,7 +1536,10 @@ label.hint { display: block; margin: 8px 0; }
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.68rem;
+  touch-action: manipulation;
+  min-height: 34px;
 }
+.diff-tab > * { pointer-events: none; }
 .diff-tab:hover { border-color: var(--accent); color: var(--text); }
 .diff-tab.active {
   color: var(--text-bright);

@@ -18,6 +18,7 @@ let tipPinned = false;
 let hoverTimer = null;
 let attrPage = 0;
 let autosellOpen = false;
+let buildPopOpen = false;
 
 function canHoverPeek() {
   return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -212,10 +213,11 @@ function renderAll() {
 function bindEvents() {
   document.getElementById('btn-offline')?.addEventListener('click', showOfflineModal);
   document.getElementById('btn-skills')?.addEventListener('click', showSkillModal);
-  document.getElementById('char-tabs')?.addEventListener('click', (e) => {
-    e.stopPropagation();
+  document.getElementById('char-tabs')?.addEventListener('pointerdown', (e) => {
     const tab = e.target.closest('.char-tab');
     if (!tab?.dataset.char) return;
+    e.preventDefault();
+    e.stopPropagation();
     if (tab.classList.contains('locked')) {
       const name = CHARACTERS[tab.dataset.char]?.name || tab.dataset.char;
       addLog({ type: 'loot', text: `${name}未解锁：${classUnlockHint(tab.dataset.char)}` });
@@ -284,6 +286,11 @@ function bindEvents() {
     autosellOpen = false;
     document.getElementById('autosell-pop')?.setAttribute('hidden', '');
   };
+  const closeBuildPop = () => {
+    buildPopOpen = false;
+    document.getElementById('build-pop')?.setAttribute('hidden', '');
+    document.querySelector('.build-cell')?.classList.remove('sel');
+  };
   const placeAutosellPop = () => {
     const pop = document.getElementById('autosell-pop');
     const btn = document.getElementById('btn-autosell');
@@ -347,9 +354,8 @@ function bindEvents() {
     gameState.autoSell.keepBetter = document.getElementById('as-better')?.checked;
   });
   document.addEventListener('click', (e) => {
-    if (!autosellOpen) return;
-    if (e.target.closest?.('.autosell-wrap')) return;
-    closeAutosellPop();
+    if (autosellOpen && !e.target.closest?.('.autosell-wrap')) closeAutosellPop();
+    if (buildPopOpen && !e.target.closest?.('#build-pop') && !e.target.closest?.('.build-cell')) closeBuildPop();
   });
   document.querySelector('.modal-overlay')?.addEventListener('click', () => closeModal());
   document.getElementById('btn-inv-multi')?.addEventListener('click', () => {
@@ -497,9 +503,10 @@ function bindEvents() {
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#item-tip, [data-inv], [data-slot], [data-skill-tip], [data-set-tip], #inv-bulk-bar, #btn-inv-multi')) hideItemTip();
   });
-  document.getElementById('map-select')?.addEventListener('click', (e) => {
+  document.getElementById('map-select')?.addEventListener('pointerdown', (e) => {
     const diffTab = e.target.closest('.diff-tab');
     if (diffTab) {
+      e.preventDefault();
       const r = setWorldDiff(gameState, diffTab.dataset.diff);
       if (!r.ok) {
         addLog({ type: 'info', text: r.reason || '无法切换难度' });
@@ -516,6 +523,7 @@ function bindEvents() {
     }
     const tab = e.target.closest('.act-tab');
     if (tab) {
+      e.preventDefault();
       mapActTab = Number(tab.dataset.act) || 1;
       mapActFollow = false;
       renderMapSelect();
@@ -523,17 +531,18 @@ function bindEvents() {
     }
     const btn = e.target.closest('.map-btn');
     if (!btn) return;
+    e.preventDefault();
     const hero = getActiveHero(gameState);
     if (btn.dataset.map === 'rift') {
-      if (!riftUnlocked(gameState)) {
+      if (!riftUnlocked(gameState, hero)) {
         addLog({ type: 'info', text: '解锁世界之石要塞后可进入小秘境' });
         return;
       }
       ensureRiftHero(hero);
       hero.currentMap = 'rift';
       hero.holdMap = false;
-      gameState.mapsEntered = gameState.mapsEntered || {};
-      gameState.mapsEntered.rift = true;
+      campaignOf(gameState, hero).mapsEntered.rift = true;
+      campaignOf(gameState, hero).lastMap = 'rift';
       mapActTab = 6;
       mapActFollow = true;
       resetFieldForZone();
@@ -544,14 +553,14 @@ function bindEvents() {
     }
     const map = MAPS.find(m => m.id === btn.dataset.map);
     if (!map) return;
-    if (!mapUnlocked(gameState, map)) {
-      addLog({ type: 'info', text: mapUnlockHint(gameState, map) || '尚未解锁' });
+    if (!mapUnlocked(gameState, map, hero)) {
+      addLog({ type: 'info', text: mapUnlockHint(gameState, map, hero) || '尚未解锁' });
       return;
     }
     hero.currentMap = map.id;
-    hero.holdMap = mapCampaignDone(gameState, map);
-    gameState.mapsEntered = gameState.mapsEntered || {};
-    gameState.mapsEntered[map.id] = true;
+    hero.holdMap = mapCampaignDone(gameState, map, hero);
+    campaignOf(gameState, hero).mapsEntered[map.id] = true;
+    campaignOf(gameState, hero).lastMap = map.id;
     mapActTab = map.act;
     mapActFollow = true;
     resetFieldForZone();
@@ -684,6 +693,20 @@ function onCampClick(e) {
 
 function runCampAct(act, uid, slot) {
   const hero = getActiveHero(gameState);
+  if (act === 'build-toggle') {
+    buildPopOpen = !buildPopOpen;
+    lastCampSig = '';
+    renderHeroPanel();
+    if (buildPopOpen) placeBuildPop();
+    return;
+  }
+  if (act === 'build-sel') {
+    hero.buildId = uid || null;
+    buildPopOpen = false;
+    lastCampSig = '';
+    renderAll();
+    return;
+  }
   if (act === 'equip') {
     const idx = gameState.inventory.findIndex(i => i.uid === uid);
     if (idx < 0) return;
@@ -884,7 +907,7 @@ function resetFieldForZone() {
   const hero = getActiveHero(gameState);
   if (!combatState || !hero) return;
   if (hero.currentMap === 'rift') combatState.killCount = hero.riftProgress || 0;
-  else combatState.killCount = gameState.mapKills?.[hero.currentMap] || 0;
+  else combatState.killCount = campaignOf(gameState, hero).mapKills?.[hero.currentMap] || 0;
   combatState.bossPity = 0;
   combatState.monsters = [];
   combatState.target = null;
@@ -898,7 +921,7 @@ function campSig() {
   const enh = SLOTS.map(s => hero.equipment[s]?.enhance || 0).join(',');
   const mats = ensureMats(gameState);
   const tr = JSON.stringify(hero.train || {});
-  return [hero.charId, hero.level, hero.skillPoints, JSON.stringify(hero.skillLevels), eq, inv, selSlot, selInvUid, [...selInvUids].sort().join('.'), invMultiMode ? 'm' : '', gameState.invFilter || 'all', JSON.stringify(normalizeInvSort(gameState.invSort)), invPage, gameState.autoSell?.enabled ? '1' : '0', gameState.autoSell?.maxQuality || '', gameState.autoSell?.action || '', autosellOpen ? 'p' : '', enh, mats.metal, mats.cloth, mats.crystal, tr, gameState.gold, gameState.bagExpands || 0, gameState.diffId || 'normal', (gameState.unlockedChars || []).join(',')].join('|');
+  return [hero.charId, hero.level, hero.skillPoints, JSON.stringify(hero.skillLevels), eq, inv, selSlot, selInvUid, [...selInvUids].sort().join('.'), invMultiMode ? 'm' : '', gameState.invFilter || 'all', JSON.stringify(normalizeInvSort(gameState.invSort)), invPage, gameState.autoSell?.enabled ? '1' : '0', gameState.autoSell?.maxQuality || '', gameState.autoSell?.action || '', autosellOpen ? 'p' : '', buildPopOpen ? 'b' : '', hero.buildId || '', enh, mats.metal, mats.cloth, mats.crystal, tr, gameState.gold, gameState.bagExpands || 0, gameState.diffId || 'normal', (gameState.unlockedChars || []).join(',')].join('|');
 }
 
 function renderHeroPanel() {
@@ -1151,6 +1174,7 @@ function renderCampAttrs(hero) {
       ['攻速', `${stats.attacksPerSec.toFixed(2)}/s`],
       ['攻击距离', stats.attackRange.toFixed(1)],
       ['暴击', `${Math.round(stats.critRate * 100)}%`],
+      ['命中', `${Math.round((stats.hitChance || 0) * 100)}%`],
       ['暴伤', `${Math.round(stats.critDmg * 100)}%`],
       ['物理加成', `${Math.round(stats.physDmgPct * 100)}%`],
       ['冷却缩减', `${Math.round((stats.cdrPct || 0) * 100)}%`],
@@ -1211,9 +1235,12 @@ function itemIconHtml(item, extraClass = '', blocked = false) {
   const cls = itemClassId(item);
   const classMark = cls && CHARACTERS[cls]
     ? `<span class="class-mark">${CHARACTERS[cls].icon}</span>` : '';
+  const rec = !blocked && itemMatchesBuild(getActiveHero(gameState), item)
+    ? '<span class="rec-mark">推荐</span>' : '';
   return `<div class="item-icon q-${item.quality} slot-${item.slot || ''} ic-${glyph} ${extraClass} ${item.locked ? 'locked' : ''} ${blocked ? 'blocked' : ''}" style="border-color:${blocked ? '#c05050' : q.color}" title="${title}">
     <svg class="item-svg" viewBox="0 0 24 24" aria-hidden="true">${itemGlyph(glyph, q.color)}</svg>
     ${classMark}
+    ${rec}
     ${blocked ? '<span class="icon-ban">禁</span>' : ''}
   </div>`;
 }
@@ -1286,9 +1313,10 @@ function showSetPeek(anchor) {
   const def = SETS[setId];
   if (!tip || !def) return;
   const n = countSetOn(hero.equipment, setId);
+  const reduce = equipmentSetReduce(hero.equipment);
   lastTipAnchor = anchor;
   setTipWide(tip, false);
-  tip.innerHTML = `<div class="inspect-name set-bonus">${def.name}（${n}/${def.pieceCount}）</div>${setBonusTiersHtml(def, n)}`;
+  tip.innerHTML = `<div class="inspect-name set-bonus">${def.name}（${n}/${def.pieceCount}）${reduce ? ` · 需求 -${reduce}` : ''}</div>${setBonusTiersHtml(def, n, reduce)}`;
   tip.hidden = false;
   positionItemTip(anchor);
 }
@@ -1442,11 +1470,43 @@ function refreshItemTip() {
   if (!keepPos || wasWide !== tip.classList.contains('wide')) positionItemTip(lastTipAnchor);
 }
 
+function fillBuildPop(hero) {
+  const pop = document.getElementById('build-pop');
+  if (!pop) return;
+  const list = classBuilds(hero.charId);
+  pop.innerHTML = `<div class="build-pop-title">流派推荐</div>`
+    + list.map(b => `<button type="button" class="as-opt ${hero.buildId === b.id ? 'on' : ''}" data-act="build-sel" data-uid="${b.id}">${b.name}<span class="as-hint">${b.hint || ''}</span></button>`).join('')
+    + `<button type="button" class="as-opt as-off" data-act="build-sel" data-uid="">不显示推荐</button>`;
+}
+
+function placeBuildPop() {
+  const pop = document.getElementById('build-pop');
+  const btn = document.querySelector('.build-cell');
+  if (!pop || !btn) return;
+  const r = btn.getBoundingClientRect();
+  const w = Math.min(240, window.innerWidth - 16);
+  pop.style.width = `${w}px`;
+  const h = pop.offsetHeight || 220;
+  let left = r.left;
+  if (left + w > window.innerWidth - 8) left = Math.max(8, window.innerWidth - w - 8);
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+}
+
 function renderCampGear() {
   const hero = getActiveHero(gameState);
   const invEl = document.getElementById('camp-inv');
-  document.getElementById('equip-slots').innerHTML = DOLL_SLOTS.map(row =>
-    row.map(slot => {
+  document.getElementById('equip-slots').innerHTML = DOLL_SLOTS.map((row, ri) =>
+    row.map((slot, ci) => {
+      if (ri === 0 && ci === 0) {
+        const b = getHeroBuild(hero);
+        return `<button type="button" class="doll-cell build-cell ${buildPopOpen ? 'sel' : ''}" data-act="build-toggle">
+          <span class="slot-label">流派</span>
+          <span class="build-cell-name">${b ? b.name : '推荐'}</span>
+        </button>`;
+      }
       if (!slot) return '<div class="doll-cell blank"></div>';
     const item = hero.equipment[slot];
       const wornBlock = slot === 'offhand' && item && equipBlockReason(hero, item);
@@ -1519,6 +1579,9 @@ function renderCampGear() {
   if (jq && document.activeElement !== jq) jq.value = gameState.junkQuality || 'magic';
   const multiBtn = document.getElementById('btn-inv-multi');
   if (multiBtn) multiBtn.classList.toggle('on', invMultiMode);
+  fillBuildPop(hero);
+  document.getElementById('build-pop')?.toggleAttribute('hidden', !buildPopOpen);
+  if (buildPopOpen) placeBuildPop();
   const bulk = document.getElementById('inv-bulk-bar');
   if (bulk) {
     const n = selInvUids.size;
@@ -1726,13 +1789,14 @@ function setTipWide(tip, wide) {
 function inspectSetHtml(hero, onlySetId) {
   const sets = getSetStatus(hero.equipment).filter(s => !onlySetId || s.setId === onlySetId);
   if (!sets.length) return '';
+  const reduce = equipmentSetReduce(hero.equipment);
   let html = '';
   for (const { def: setDef, count } of sets) {
     const anc = Object.values(hero.equipment || {}).filter(it => it?.setId === setDef.id && it.quality === 'ancientSet').length;
     const ancTag = anc ? (anc >= count ? ' · 远古' : ` · 远古${anc}`) : '';
-    html += `<div class="set-bonus">${setDef.name}（${count}/${setDef.pieceCount}）${ancTag}</div>`;
-    for (const [pieces, bonus] of Object.entries(setDef.bonuses)) {
-      html += `<div class="set-tier ${count >= parseInt(pieces, 10) ? 'active' : ''}">${pieces}件：${bonus.desc}</div>`;
+    html += `<div class="set-bonus">${setDef.name}（${count}/${setDef.pieceCount}）${ancTag}${reduce ? ` · 需求 -${reduce}` : ''}</div>`;
+    for (const [pieces, bonus] of setBonusEntries(setDef)) {
+      html += `<div class="set-tier ${setBonusActive(count, pieces, reduce) ? 'active' : ''}">${pieces}件${reduce && parseInt(pieces, 10) > 2 ? `（实需${setPiecesNeeded(pieces, reduce)}）` : ''}：${bonus.desc}</div>`;
     }
   }
   return html;
@@ -1754,17 +1818,18 @@ function equipmentAfterEquip(hero, item, destSlot) {
   return eq;
 }
 
-function setBonusTiersHtml(def, count) {
-  return Object.entries(def.bonuses).map(([n, b]) =>
-    `<div class="set-tier ${count >= parseInt(n, 10) ? 'active' : ''}">${n}件：${b.desc}</div>`
-  ).join('');
+function setBonusTiersHtml(def, count, reduce = 0) {
+  return setBonusEntries(def).map(([n, b]) => {
+    const needNote = reduce && parseInt(n, 10) > 2 ? `（实需${setPiecesNeeded(n, reduce)}）` : '';
+    return `<div class="set-tier ${setBonusActive(count, n, reduce) ? 'active' : ''}">${n}件${needNote}：${b.desc}</div>`;
+  }).join('');
 }
 
-function setNameHoverHtml(def, count) {
+function setNameHoverHtml(def, count, reduce = 0) {
   if (!def) return '';
   return `<div class="set-hot">
-    <span class="set-hot-name">${def.name}（${count}/${def.pieceCount}）</span>
-    <div class="set-tip-pop">${setBonusTiersHtml(def, count)}</div>
+    <span class="set-hot-name">${def.name}（${count}/${def.pieceCount}）${reduce ? ` · -${reduce}` : ''}</span>
+    <div class="set-tip-pop">${setBonusTiersHtml(def, count, reduce)}</div>
   </div>`;
 }
 
@@ -1790,10 +1855,11 @@ function renderSetCollection(beforeEq, afterEq, setId, bagItem, destSlot) {
   const def = SETS[setId];
   if (!def) return '';
   const after = countSetOn(afterEq, setId);
+  const reduce = equipmentSetReduce(afterEq);
   const catalog = LEGENDARY_ITEMS.filter(i => i.setId === setId);
-  let html = `<div class="set-bonus">穿上后 · ${def.name}（${after}/${def.pieceCount}）</div>`;
+  let html = `<div class="set-bonus">穿上后 · ${def.name}（${after}/${def.pieceCount}）${reduce ? ` · 需求 -${reduce}` : ''}</div>`;
   html += `<div class="set-pieces">${catalog.map(cat => setPieceLine(cat, afterEq, bagItem, destSlot)).join('')}</div>`;
-  html += setBonusTiersHtml(def, after);
+  html += setBonusTiersHtml(def, after, reduce);
   return html;
 }
 
@@ -1809,9 +1875,10 @@ function renderSetsAfterEquip(beforeEq, afterEq) {
     }
     return html;
   }
+  const reduce = equipmentSetReduce(afterEq);
   for (const s of afterSets) {
-    html += `<div class="set-bonus">${s.def.name}（${s.count}/${s.def.pieceCount}）</div>`;
-    html += setBonusTiersHtml(s.def, s.count);
+    html += `<div class="set-bonus">${s.def.name}（${s.count}/${s.def.pieceCount}）${reduce ? ` · 需求 -${reduce}` : ''}</div>`;
+    html += setBonusTiersHtml(s.def, s.count, reduce);
   }
   for (const s of beforeSets) {
     if (!afterSets.some(a => a.setId === s.setId)) {
@@ -2109,27 +2176,38 @@ function renderMapSelect() {
   const diffEl = document.getElementById('diff-select');
   if (!actsEl || !container) return;
   ensureWorldDiff(gameState);
+  const camp = campaignOf(gameState, hero);
   if (diffEl) {
     const cur = getWorldDiff(gameState);
-    diffEl.innerHTML = WORLD_DIFFS.map(d => {
-      const open = diffUnlocked(gameState, d.id);
-      const title = open
-        ? `${d.name}：怪物 Lv.${d.lvMin}–${d.lvMax}，×${d.monsterMult}，掉落属性 ×${d.lootMult}`
-        : `击败${WORLD_DIFFS.find(x => x.tier === d.tier - 1)?.name || '上一'}难度的巴尔后解锁`;
-      return `<button type="button" class="diff-tab diff-${d.id}${cur.id === d.id ? ' active' : ''}${open ? '' : ' locked'}" data-diff="${d.id}" title="${title}">${d.name}</button>`;
-    }).join('');
+    const dkey = WORLD_DIFFS.map(d => `${d.id}:${diffUnlocked(gameState, d.id) ? 1 : 0}`).join('|') + '|' + cur.id;
+    if (diffEl.dataset.key !== dkey) {
+      diffEl.dataset.key = dkey;
+      diffEl.innerHTML = WORLD_DIFFS.map(d => {
+        const open = diffUnlocked(gameState, d.id);
+        const title = open
+          ? `${d.name}：怪物 Lv.${d.lvMin}–${d.lvMax}，×${d.monsterMult}，掉落属性 ×${d.lootMult}`
+          : `击败${WORLD_DIFFS.find(x => x.tier === d.tier - 1)?.name || '上一'}难度的巴尔后解锁`;
+        return `<button type="button" class="diff-tab diff-${d.id}${cur.id === d.id ? ' active' : ''}${open ? '' : ' locked'}" data-diff="${d.id}" title="${title}">${d.name}</button>`;
+      }).join('');
+    } else {
+      for (const btn of diffEl.querySelectorAll('.diff-tab')) {
+        const open = diffUnlocked(gameState, btn.dataset.diff);
+        btn.classList.toggle('active', cur.id === btn.dataset.diff);
+        btn.classList.toggle('locked', !open);
+      }
+    }
   }
-  gameState.mapsEntered = gameState.mapsEntered || {};
-  if (hero.currentMap) gameState.mapsEntered[hero.currentMap] = true;
+  if (hero.currentMap) camp.mapsEntered[hero.currentMap] = true;
   const heroAct = hero.currentMap === 'rift' ? 6 : (getMap(hero.currentMap)?.act || 1);
   if (!mapActTab || mapActFollow) mapActTab = heroAct;
 
-  if (!knownMapUnlocks) {
-    knownMapUnlocks = new Set(MAPS.filter(m => mapUnlocked(gameState, m)).map(m => m.id));
+  const unlockKey = `${hero.charId}|${getWorldDiff(gameState).id}`;
+  if (!knownMapUnlocks || knownMapUnlocks.key !== unlockKey) {
+    knownMapUnlocks = { key: unlockKey, ids: new Set(MAPS.filter(m => mapUnlocked(gameState, m, hero)).map(m => m.id)) };
   } else {
     for (const map of MAPS) {
-      if (!mapUnlocked(gameState, map) || knownMapUnlocks.has(map.id)) continue;
-      knownMapUnlocks.add(map.id);
+      if (!mapUnlocked(gameState, map, hero) || knownMapUnlocks.ids.has(map.id)) continue;
+      knownMapUnlocks.ids.add(map.id);
       mapActTab = map.act;
       mapActFollow = false;
       addLog({ type: 'level', text: `新地图可进入：${map.name}` });
@@ -2150,13 +2228,13 @@ function renderMapSelect() {
     const tab = actsEl.children[i];
     const rift = a === 6;
     const maps = rift ? [] : MAPS.filter(m => m.act === a);
-    const anyOpen = rift ? riftUnlocked(gameState) : maps.some(m => mapUnlocked(gameState, m));
+    const anyOpen = rift ? riftUnlocked(gameState, hero) : maps.some(m => mapUnlocked(gameState, m, hero));
     const anyNew = rift
-      ? (riftUnlocked(gameState) && !gameState.mapsEntered.rift && hero.currentMap !== 'rift')
-      : maps.some(m => mapUnlocked(gameState, m)
-        && !gameState.mapsEntered[m.id]
+      ? (riftUnlocked(gameState, hero) && !camp.mapsEntered.rift && hero.currentMap !== 'rift')
+      : maps.some(m => mapUnlocked(gameState, m, hero)
+        && !camp.mapsEntered[m.id]
         && m.id !== hero.currentMap);
-    const allCleared = !rift && anyOpen && maps.every(m => mapCampaignDone(gameState, m));
+    const allCleared = !rift && anyOpen && maps.every(m => mapCampaignDone(gameState, m, hero));
     tab.classList.toggle('active', mapActTab === a);
     tab.classList.toggle('locked', !anyOpen);
     tab.classList.toggle('cleared', allCleared);
@@ -2169,8 +2247,8 @@ function renderMapSelect() {
   if (mapActTab === 6) {
     ensureRiftHero(hero);
     const rmap = withDiffLevels(makeRiftMap(hero.riftFloor), gameState);
-    const locked = !riftUnlocked(gameState);
-    const p = mapClearProgress(gameState, rmap);
+    const locked = !riftUnlocked(gameState, hero);
+    const p = mapClearProgress(gameState, rmap, hero);
     if (container.dataset.act !== '6' || container.childElementCount !== 1) {
       container.dataset.act = '6';
       container.innerHTML = `<button type="button" class="map-btn boss" data-map="rift">
@@ -2186,7 +2264,7 @@ function renderMapSelect() {
     </button>`;
     }
     const btn = container.children[0];
-    const isNew = !locked && !gameState.mapsEntered.rift && hero.currentMap !== 'rift';
+    const isNew = !locked && !camp.mapsEntered.rift && hero.currentMap !== 'rift';
     btn.classList.toggle('locked', locked);
     btn.classList.toggle('cleared', false);
     btn.classList.toggle('active', hero.currentMap === 'rift');
@@ -2226,10 +2304,10 @@ function renderMapSelect() {
   visible.forEach((raw, i) => {
     const map = withDiffLevels(raw, gameState);
     const btn = container.children[i];
-    const locked = !mapUnlocked(gameState, raw);
-    const p = mapClearProgress(gameState, map);
-    const done = !locked && mapCampaignDone(gameState, raw);
-    const isNew = !locked && !done && !gameState.mapsEntered[map.id] && map.id !== hero.currentMap;
+    const locked = !mapUnlocked(gameState, raw, hero);
+    const p = mapClearProgress(gameState, map, hero);
+    const done = !locked && mapCampaignDone(gameState, raw, hero);
+    const isNew = !locked && !done && !camp.mapsEntered[map.id] && map.id !== hero.currentMap;
     btn.disabled = false;
     btn.classList.toggle('locked', locked);
     btn.classList.toggle('cleared', done);
@@ -2240,7 +2318,7 @@ function renderMapSelect() {
     btn.querySelector('.map-lv').textContent = `Lv.${map.levelMin}–${map.levelMax}`;
     btn.querySelector('.map-prog-fill').style.width = `${locked ? 0 : p.pct}%`;
     btn.querySelector('.map-hint').textContent = locked
-      ? (`未解锁 · ${mapUnlockHint(gameState, map) || '尚未开放'}`)
+      ? (`未解锁 · ${mapUnlockHint(gameState, map, hero) || '尚未开放'}`)
       : (done ? '已通关' : (isNew ? '可进入' : (map.isBoss && p.ready ? '首领可挑战' : `${p.have}/${p.need}`)));
     const tag = btn.querySelector('.map-new-tag');
     const dot = btn.querySelector('.map-new-dot');
@@ -2356,15 +2434,19 @@ function itemLine(item, opts = {}) {
   const affixHtml = (item.affixes || []).map(a => formatAffixLine(shownAffix(item, a), q.color, false, vs ? affixValueDelta(item, a, vs) : null)).join('')
     + (item.exclusiveAffix ? formatAffixLine(shownAffix(item, item.exclusiveAffix), q.color, true, vs ? affixValueDelta(item, item.exclusiveAffix, vs) : null) : '');
   const morph = item.morphId ? MORPHS[item.morphId] : null;
-  const morphStr = morph ? `<div class="morph-line">性态·${morph.name}：${morph.desc}${item.morphSkill ? `（${item.morphSkill}）` : ''}</div>` : '';
+  const morphSkillName = item.morphSkill
+    ? (SKILLS[item.reqClass]?.[item.morphSkill]?.name || SKILLS[opts.hero?.charId]?.[item.morphSkill]?.name || '')
+    : '';
+  const morphStr = morph ? `<div class="morph-line">性态·${morph.name}：${morph.desc}${morphSkillName ? `（${morphSkillName}）` : ''}</div>` : '';
   let setStr = '';
   if (item.setId && SETS[item.setId]) {
     const def = SETS[item.setId];
     const hero = opts.hero || getActiveHero(gameState);
     const n = countSetOn(hero?.equipment, item.setId);
+    const reduce = equipmentSetReduce(hero?.equipment);
     setStr = opts.setDetails
-      ? `<div class="set-bonus">${def.name}（${n}/${def.pieceCount}）</div>${setBonusTiersHtml(def, n)}`
-      : setNameHoverHtml(def, n);
+      ? `<div class="set-bonus">${def.name}（${n}/${def.pieceCount}）${reduce ? ` · 华戒 -${reduce}` : ''}</div>${setBonusTiersHtml(def, n, reduce)}`
+      : setNameHoverHtml(def, n, reduce);
   }
   return { q, affixHtml, morphStr, setStr };
 }
@@ -2373,6 +2455,10 @@ function switchActiveChar(id) {
   if (!id || gameState.activeCharId === id) return;
   if (!(gameState.unlockedChars || []).includes(id) || !gameState.heroes[id]) return;
   gameState.activeCharId = id;
+  syncCampaignAlias(gameState);
+  knownMapUnlocks = null;
+  mapActFollow = true;
+  mapActTab = 0;
   hideItemTip();
   selSlot = 'weapon';
   selInvUid = null;
@@ -2421,6 +2507,9 @@ function renderCharTabs() {
     const unlocked = (gameState.unlockedChars || []).includes(tab.id);
     const active = gameState.activeCharId === tab.id;
     const hint = unlocked ? (CHARACTERS[tab.id]?.name || tab.short) : classUnlockHint(tab.id);
+  const vis = `${unlocked ? 1 : 0}|${active ? 1 : 0}`;
+    if (btn.dataset.vis === vis) continue;
+    btn.dataset.vis = vis;
     btn.classList.toggle('on', active);
     btn.classList.toggle('open', unlocked);
     btn.classList.toggle('locked', !unlocked);

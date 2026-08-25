@@ -123,16 +123,16 @@ const SLOT_NAMES = {
 };
 
 const MORPHS = {
-  pierce: { id: 'pierce', name: '穿刺', desc: '投射穿透 +2，逐目标伤害 85%' },
-  split: { id: 'split', name: '分裂', desc: '命中再分裂 2 支（50% 伤）' },
-  nova: { id: 'nova', name: '新星化', desc: '改为自身环状释放，打全体' },
-  chain: { id: 'chain', name: '连锁', desc: '额外跳跃 +2' },
-  trail: { id: 'trail', name: '轨迹残留', desc: '弹道留下 DOT 地面' },
-  convert: { id: 'convert', name: '元素转化', desc: '物理伤害转为火焰' },
-  proc: { id: 'proc', name: '击中施放', desc: '普攻 20% 触发该技能半系数' },
-  reset: { id: 'reset', name: '收招重置', desc: '击杀精英/稀有时重置该技能冷却' },
-  shapecast: { id: 'shapecast', name: '人兽施法', desc: '变形中仍可释放元素技能' },
-  window: { id: 'window', name: '窗口延长', desc: '连招窗口 +1.5 秒' },
+  pierce: { id: 'pierce', name: '穿刺', classes: ['amazon', 'necro'], desc: '该投射技能穿透强化，逐目标伤害随穿透加成' },
+  split: { id: 'split', name: '分裂', classes: ['amazon'], desc: '该投射技能命中后再分裂 2 支' },
+  nova: { id: 'nova', name: '新星化', classes: ['berserker', 'sorceress', 'paladin', 'necro', 'assassin'], desc: '改为自身环状释放，覆盖周围敌人' },
+  chain: { id: 'chain', name: '连锁', classes: ['amazon', 'sorceress', 'paladin', 'assassin', 'necro'], desc: '该技能额外跳跃 / 连击 +2' },
+  trail: { id: 'trail', name: '轨迹残留', classes: ['amazon', 'sorceress', 'druid', 'necro'], desc: '弹道或环状技能留下持续伤害地面' },
+  convert: { id: 'convert', name: '元素转化', classes: ['berserker'], desc: '该物理技能伤害转为火焰' },
+  proc: { id: 'proc', name: '击中施放', classes: ['berserker', 'sorceress', 'assassin', 'necro'], desc: '普攻 20% 触发该技能半系数' },
+  reset: { id: 'reset', name: '收招重置', classes: ['berserker', 'amazon'], desc: '击杀精英/稀有/Boss 时重置该技能冷却' },
+  shapecast: { id: 'shapecast', name: '人兽施法', classes: ['druid'], desc: '狼人/熊人期间仍可释放元素技能' },
+  window: { id: 'window', name: '窗口延长', classes: ['assassin', 'paladin'], desc: '连招窗口 +1.5 秒，终结技在窗口内增伤' },
 };
 
 const CLASS_UNLOCKS = [
@@ -219,11 +219,11 @@ function S(id, name, tree, type, extra) {
 
 const SKILLS = {
   berserker: {
-    smash: S('smash', '猛击', 'combat', 'active', { tags: ['melee', 'phys', 'opener'], desc: '武器伤害打击，可击晕并积攒怒气', damageMult: 1.6, cooldown: 0, stunChance: 0.2, resGain: 18, synergy: [{ skill: 'leap', pct: 8 }, { skill: 'stun', pct: 4 }] }),
-    leap: S('leap', '跃击', 'combat', 'active', { tags: ['melee', 'aoe', 'phys'], desc: '跳砸周围敌人', damageMult: 1.9, cooldown: 5, aoe: true, aoeRadius: 2.2, resCost: 14, prereq: 'smash', synergy: [{ skill: 'smash', pct: 10 }] }),
+    smash: S('smash', '猛击', 'combat', 'active', { tags: ['melee', 'phys', 'opener'], desc: '武器打击攒怒气。破军套装下为狂乱起手', damageMult: 1.6, cooldown: 0, stunChance: 0.2, resGain: 18, synergy: [{ skill: 'leap', pct: 8 }, { skill: 'frenzy', pct: 6 }] }),
+    leap: S('leap', '跃击', 'combat', 'active', { tags: ['melee', 'aoe', 'phys'], desc: '跳砸周围。为旋风斩提供协同', damageMult: 1.9, cooldown: 5, aoe: true, aoeRadius: 2.2, resCost: 14, prereq: 'smash', synergy: [{ skill: 'smash', pct: 10 }, { skill: 'whirlwind', pct: 6 }] }),
     stun: S('stun', '击晕', 'combat', 'active', { tags: ['melee', 'control', 'window'], desc: '高硬直打击，开启旋风窗口', damageMult: 1.4, cooldown: 6, resCost: 12, prereq: 'leap', synergy: [{ skill: 'smash', pct: 8 }] }),
-    whirlwind: S('whirlwind', '旋风斩', 'combat', 'active', { tags: ['melee', 'aoe', 'phys', 'finisher'], desc: '持续旋转，对周围敌人反复造成范围伤害', damageMult: 0.5, cooldown: 0, aoe: true, aoeRadius: 2.45, channel: 2.3, channelTick: 0.32, resCost: 28, prereq: 'leap', synergy: [{ skill: 'leap', pct: 7 }, { skill: 'weaponMastery', pct: 5 }] }),
-    frenzy: S('frenzy', '狂乱', 'combat', 'active', { tags: ['melee', 'aoe', 'phys'], desc: '连续挥砍周围敌人并叠攻速', damageMult: 1.35, cooldown: 3.2, aoe: true, aoeRadius: 2.15, hits: 2, resCost: 16, prereq: 'whirlwind', synergy: [{ skill: 'whirlwind', pct: 6 }] }),
+    whirlwind: S('whirlwind', '旋风斩', 'combat', 'active', { tags: ['melee', 'aoe', 'phys', 'finisher'], desc: '持续旋转清场。不朽套装额外打击并吸血', damageMult: 0.5, cooldown: 0, aoe: true, aoeRadius: 2.45, channel: 2.3, channelTick: 0.32, resCost: 28, prereq: 'leap', synergy: [{ skill: 'leap', pct: 8 }, { skill: 'weaponMastery', pct: 6 }, { skill: 'battleOrders', pct: 4 }] }),
+    frenzy: S('frenzy', '狂乱', 'combat', 'active', { tags: ['melee', 'aoe', 'phys'], desc: '连续挥砍叠攻速。破军套装核心输出', damageMult: 1.4, cooldown: 3.2, aoe: true, aoeRadius: 2.15, hits: 2, resCost: 16, prereq: 'whirlwind', synergy: [{ skill: 'smash', pct: 8 }, { skill: 'whirlwind', pct: 5 }] }),
     howl: S('howl', '嚎叫', 'warcry', 'aura', { tags: ['aura', 'control'], desc: '光环：周围小怪周期溃逃，并降低其伤害', enemyDmgDown: 0.05, auraPulse: { interval: 7, radius: 5.5, flee: true, fleeDur: 2.2 }, synergy: [{ skill: 'taunt', pct: 5 }] }),
     taunt: S('taunt', '嘲讽', 'warcry', 'aura', { tags: ['aura', 'control', 'aoe', 'nova'], desc: '光环：持续减伤；周期怒吼强制周围敌人近身进攻', damageReduction: 0.04, taunt: true, tauntDuration: 5.5, aoe: true, aoeRadius: 7, auraPulse: { interval: 6, radius: 7, taunt: true } }),
     battleOrders: S('battleOrders', '战斗体制', 'warcry', 'aura', { tags: ['aura', 'buff'], desc: '光环：最大生命提升', hpBonus: 0.06, prereq: 'taunt' }),
@@ -232,51 +232,51 @@ const SKILLS = {
     weaponMastery: S('weaponMastery', '武器精通', 'mastery', 'passive', { tags: ['phys', 'melee'], desc: '近战伤害', damageBonus: 0.08 }),
     tenacity: S('tenacity', '钢铁之肤', 'mastery', 'passive', { tags: ['melee'], desc: '护甲与生命', armorBonus: 0.1, hpBonus: 0.04, prereq: 'weaponMastery' }),
     bloodthirst: S('bloodthirst', '嗜血', 'mastery', 'passive', { tags: ['melee'], desc: '吸血', lifesteal: 0.018, prereq: 'tenacity' }),
-    battleMastery: S('battleMastery', '战斗精通', 'mastery', 'passive', { tags: ['melee', 'phys'], desc: '命中与暴击', critBonus: 0.012, prereq: 'bloodthirst' }),
+    battleMastery: S('battleMastery', '战斗精通', 'mastery', 'passive', { tags: ['melee', 'phys'], desc: '命中与暴击', critBonus: 0.01, hitChance: 0.035, prereq: 'bloodthirst' }),
     deepWounds: S('deepWounds', '深度创伤', 'mastery', 'passive', { tags: ['melee', 'phys'], desc: '物理伤害与吸血', damageBonus: 0.05, lifesteal: 0.01, prereq: 'battleMastery' }),
   },
   amazon: {
     magicArrow: S('magicArrow', '魔法箭', 'bow', 'active', { tags: ['projectile', 'magic', 'opener'], desc: '不耗箭的魔法箭', damageMult: 1.3, cooldown: 0, element: 'magic', synergy: [{ skill: 'multiShot', pct: 4 }] }),
-    multiShot: S('multiShot', '多重射击', 'bow', 'active', { tags: ['projectile', 'aoe', 'phys'], desc: '分裂箭矢清场', damageMult: 0.85, cooldown: 3, aoe: true, hits: 3, prereq: 'magicArrow', synergy: [{ skill: 'magicArrow', pct: 7 }, { skill: 'pierce', pct: 4 }] }),
-    strafe: S('strafe', '扫射', 'bow', 'active', { tags: ['projectile', 'aoe', 'phys', 'finisher'], desc: '对场上逐个点射', damageMult: 1.1, cooldown: 7, aoe: true, prereq: 'multiShot', synergy: [{ skill: 'guided', pct: 8 }] }),
+    multiShot: S('multiShot', '多重射击', 'bow', 'active', { tags: ['projectile', 'aoe', 'phys'], desc: '分裂箭矢清场。荣光/风之力使其再分裂', damageMult: 0.85, cooldown: 3, aoe: true, hits: 3, prereq: 'magicArrow', synergy: [{ skill: 'magicArrow', pct: 8 }, { skill: 'pierce', pct: 6 }] }),
+    strafe: S('strafe', '扫射', 'bow', 'active', { tags: ['projectile', 'aoe', 'phys', 'finisher'], desc: '逐个点射。苍穹套装下击杀精英重置冷却', damageMult: 1.1, cooldown: 7, aoe: true, prereq: 'multiShot', synergy: [{ skill: 'guided', pct: 8 }, { skill: 'multiShot', pct: 5 }] }),
     freezeArrow: S('freezeArrow', '冻结箭', 'bow', 'active', { tags: ['projectile', 'ice', 'aoe'], desc: '爆炸冻结', damageMult: 1.6, cooldown: 8, aoe: true, element: 'ice', prereq: 'strafe', synergy: [{ skill: 'magicArrow', pct: 6 }] }),
     guided: S('guided', '导引箭', 'bow', 'active', { tags: ['projectile', 'phys', 'aoe'], desc: '追踪箭，弹射附近目标', damageMult: 1.45, cooldown: 4.5, aoe: true, hits: 2, prereq: 'freezeArrow', synergy: [{ skill: 'strafe', pct: 7 }] }),
     poisonJav: S('poisonJav', '毒枪', 'javelin', 'active', { tags: ['projectile', 'poison', 'dot', 'opener'], desc: '直线毒云', damageMult: 1.2, cooldown: 4, element: 'poison', synergy: [{ skill: 'plagueJav', pct: 12 }] }),
     plagueJav: S('plagueJav', '瘟疫标枪', 'javelin', 'active', { tags: ['projectile', 'poison', 'aoe', 'window'], desc: '落地毒池', damageMult: 1.4, cooldown: 7, aoe: true, element: 'poison', prereq: 'poisonJav', synergy: [{ skill: 'poisonJav', pct: 10 }] }),
     chargedStrike: S('chargedStrike', '充能一击', 'javelin', 'active', { tags: ['melee', 'lightning'], desc: '近战闪电充能', damageMult: 1.7, cooldown: 5, element: 'lightning', prereq: 'plagueJav', synergy: [{ skill: 'lightningFury', pct: 8 }] }),
-    lightningFury: S('lightningFury', '闪电之怒', 'javelin', 'active', { tags: ['projectile', 'lightning', 'aoe', 'finisher'], desc: '标枪爆炸放出电球', damageMult: 2.2, cooldown: 10, aoe: true, element: 'lightning', hits: 4, prereq: 'chargedStrike', synergy: [{ skill: 'poisonJav', pct: 6 }, { skill: 'chargedStrike', pct: 7 }] }),
+    lightningFury: S('lightningFury', '闪电之怒', 'javelin', 'active', { tags: ['projectile', 'lightning', 'aoe', 'finisher'], desc: '标枪爆炸放出电球。女武神套装额外电球', damageMult: 2.2, cooldown: 10, aoe: true, element: 'lightning', hits: 4, prereq: 'chargedStrike', synergy: [{ skill: 'chargedStrike', pct: 9 }, { skill: 'pierce', pct: 5 }] }),
     fend: S('fend', '疾刺', 'javelin', 'active', { tags: ['melee', 'phys', 'aoe'], desc: '对周围连续突刺', damageMult: 1.25, cooldown: 4, aoe: true, hits: 3, prereq: 'lightningFury', synergy: [{ skill: 'chargedStrike', pct: 6 }] }),
     pierce: S('pierce', '穿透', 'passive', 'passive', { tags: ['projectile', 'pierce'], desc: '投射穿透率与攻击距离', pierceBonus: 0.06, rangeBonus: 0.08 }),
-    critStrike: S('critStrike', '致命打击', 'passive', 'passive', { tags: ['phys'], desc: '独立物理暴击', critBonus: 0.02, prereq: 'pierce' }),
+    critStrike: S('critStrike', '致命打击', 'passive', 'passive', { tags: ['phys'], desc: '独立物理暴击', critBonus: 0.01, prereq: 'pierce' }),
     innerSight: S('innerSight', '内视', 'passive', 'active', { tags: ['curse'], desc: '揭示弱点：降低敌人护甲', damageMult: 0.2, cooldown: 10, prereq: 'critStrike', curse: { id: 'innerSight', dur: 8, armorDown: 0.22 } }),
     valkyrie: S('valkyrie', '女武神', 'passive', 'passive', { tags: ['summon'], desc: '召唤近战女武神协同作战，穿刺敌人', summonBonus: 0.12, prereq: 'innerSight', summonKind: 'valkyrie', summonCount: () => 1, summonPal: ['#3a4a6a', '#d4b050', '#f0e0c0'], summonScale: 0.95 }),
     dodge: S('dodge', '躲避', 'passive', 'passive', { tags: ['def'], desc: '减伤与生命', damageReduction: 0.012, hpBonus: 0.03, prereq: 'valkyrie' }),
   },
   sorceress: {
     fireBolt: S('fireBolt', '火弹', 'fire', 'active', { tags: ['projectile', 'fire', 'opener'], desc: '快速火弹', damageMult: 1.35, cooldown: 0, element: 'fire', synergy: [{ skill: 'fireball', pct: 8 }] }),
-    fireball: S('fireball', '火球', 'fire', 'active', { tags: ['projectile', 'fire', 'aoe'], desc: '大范围爆炸火球', damageMult: 2.05, cooldown: 0.5, aoe: true, aoeRadius: 2.85, aoePerLevel: 0.08, element: 'fire', prereq: 'fireBolt', synergy: [{ skill: 'fireBolt', pct: 10 }, { skill: 'meteor', pct: 6 }] }),
-    fireWall: S('fireWall', '火墙', 'fire', 'active', { tags: ['dot', 'fire', 'aoe'], desc: '宽幅地面火墙', damageMult: 0.95, cooldown: 6, aoe: true, aoeRadius: 3.4, aoePerLevel: 0.06, element: 'fire', prereq: 'fireball', synergy: [{ skill: 'fireball', pct: 8 }] }),
-    meteor: S('meteor', '陨石', 'fire', 'active', { tags: ['aoe', 'fire', 'finisher'], desc: '大范围延迟陨石', damageMult: 3.25, cooldown: 7, aoe: true, aoeRadius: 3.55, aoePerLevel: 0.1, element: 'fire', prereq: 'fireWall', synergy: [{ skill: 'fireball', pct: 8 }, { skill: 'fireWall', pct: 7 }] }),
+    fireball: S('fireball', '火球', 'fire', 'active', { tags: ['projectile', 'fire', 'aoe'], desc: '爆炸火球。塔拉夏 4 件由陨石追加释放', damageMult: 2.05, cooldown: 0.5, aoe: true, aoeRadius: 2.85, aoePerLevel: 0.08, element: 'fire', prereq: 'fireBolt', synergy: [{ skill: 'fireBolt', pct: 10 }, { skill: 'meteor', pct: 8 }, { skill: 'hydra', pct: 4 }] }),
+    fireWall: S('fireWall', '火墙', 'fire', 'active', { tags: ['dot', 'fire', 'aoe'], desc: '宽幅地面火墙', damageMult: 0.95, cooldown: 6, duration: 6, lingerTick: 0.4, aoe: true, aoeRadius: 3.4, aoePerLevel: 0.06, element: 'fire', prereq: 'fireball', synergy: [{ skill: 'fireball', pct: 8 }] }),
+    meteor: S('meteor', '陨石', 'fire', 'active', { tags: ['aoe', 'fire', 'finisher'], desc: '延迟陨石。塔拉夏套装落地后再爆火球', damageMult: 3.25, cooldown: 7, aoe: true, aoeRadius: 3.55, aoePerLevel: 0.1, element: 'fire', prereq: 'fireWall', synergy: [{ skill: 'fireball', pct: 10 }, { skill: 'fireWall', pct: 7 }, { skill: 'hydra', pct: 5 }] }),
     hydra: S('hydra', '九头蛇', 'fire', 'active', { tags: ['summon', 'fire', 'dot', 'aoe'], desc: '在目标处召唤喷火九头蛇，驻守持续攻击', damageMult: 0.9, cooldown: 6, duration: 10, lingerTick: 0.5, plantSummon: true, summonCap: 3, aoe: true, aoeRadius: 2.1, aoePerLevel: 0.05, element: 'fire', prereq: 'meteor', synergy: [{ skill: 'fireball', pct: 7 }, { skill: 'fireWall', pct: 6 }] }),
     iceBolt: S('iceBolt', '冰弹', 'ice', 'active', { tags: ['projectile', 'ice', 'opener'], desc: '减速冰弹', damageMult: 1.4, cooldown: 0, element: 'ice', synergy: [{ skill: 'glacial', pct: 8 }] }),
     frostNova: S('frostNova', '冰霜新星', 'ice', 'active', { tags: ['aoe', 'ice', 'control', 'nova'], desc: '大环冻结', damageMult: 1.5, cooldown: 4, aoe: true, aoeRadius: 4.6, aoePerLevel: 0.12, element: 'ice', prereq: 'iceBolt', synergy: [{ skill: 'blizzard', pct: 6 }] }),
     glacial: S('glacial', '冰枪', 'ice', 'active', { tags: ['projectile', 'ice', 'pierce'], desc: '穿透冰枪', damageMult: 1.85, cooldown: 2.4, element: 'ice', prereq: 'frostNova', synergy: [{ skill: 'iceBolt', pct: 10 }] }),
-    blizzard: S('blizzard', '暴风雪', 'ice', 'active', { tags: ['aoe', 'dot', 'ice', 'finisher'], desc: '大范围持续落冰，覆盖整段冷却', damageMult: 0.55, cooldown: 8, duration: 8, lingerTick: 0.45, aoe: true, aoeRadius: 3.8, aoePerLevel: 0.09, element: 'ice', prereq: 'glacial', synergy: [{ skill: 'frostNova', pct: 8 }, { skill: 'glacial', pct: 6 }] }),
+    blizzard: S('blizzard', '暴风雪', 'ice', 'active', { tags: ['aoe', 'dot', 'ice', 'finisher'], desc: '持续落冰。霜帷套装留下冰面 DOT', damageMult: 0.55, cooldown: 8, duration: 8, lingerTick: 0.45, aoe: true, aoeRadius: 3.8, aoePerLevel: 0.09, element: 'ice', prereq: 'glacial', synergy: [{ skill: 'frostNova', pct: 8 }, { skill: 'glacial', pct: 8 }, { skill: 'frozenOrb', pct: 5 }] }),
     frozenOrb: S('frozenOrb', '冰封球', 'ice', 'active', { tags: ['projectile', 'ice', 'aoe', 'finisher'], desc: '旋转冰球向外散射', damageMult: 1.65, cooldown: 5, aoe: true, aoeRadius: 3.1, hits: 4, element: 'ice', prereq: 'blizzard', synergy: [{ skill: 'blizzard', pct: 8 }, { skill: 'glacial', pct: 6 }] }),
     chargedBolt: S('chargedBolt', '充能弹', 'lightning', 'active', { tags: ['projectile', 'lightning', 'opener'], desc: '多颗电弹', damageMult: 0.75, cooldown: 0, hits: 5, element: 'lightning', synergy: [{ skill: 'chainLightning', pct: 6 }] }),
     staticField: S('staticField', '静态力场', 'lightning', 'active', { tags: ['aoe', 'lightning', 'window', 'nova'], desc: '大范围削当前生命（Boss 衰减）', damageMult: 1.05, cooldown: 5, aoe: true, aoeRadius: 5.1, aoePerLevel: 0.08, element: 'lightning', prereq: 'chargedBolt', static: true }),
-    chainLightning: S('chainLightning', '连锁闪电', 'lightning', 'active', { tags: ['projectile', 'lightning', 'aoe'], desc: '高跳跃闪电', damageMult: 2.15, cooldown: 3.8, chain: 8, aoe: true, aoeRadius: 2.4, element: 'lightning', prereq: 'staticField', synergy: [{ skill: 'chargedBolt', pct: 7 }] }),
+    chainLightning: S('chainLightning', '连锁闪电', 'lightning', 'active', { tags: ['projectile', 'lightning', 'aoe'], desc: '高跳跃闪电。雷纹套装额外跳跃', damageMult: 2.15, cooldown: 3.8, chain: 8, aoe: true, aoeRadius: 2.4, element: 'lightning', prereq: 'staticField', synergy: [{ skill: 'chargedBolt', pct: 8 }, { skill: 'thunderstorm', pct: 6 }] }),
     energyShield: S('energyShield', '能量护盾', 'lightning', 'buff', { tags: ['buff'], desc: '部分伤害由护盾承担', shieldPct: 0.08, cooldown: 8, buffDuration: 28, prereq: 'chainLightning' }),
-    thunderstorm: S('thunderstorm', '雷暴', 'lightning', 'active', { tags: ['aoe', 'lightning', 'finisher'], desc: '环绕落雷清场', damageMult: 1.45, cooldown: 6.5, aoe: true, aoeRadius: 4.8, aoePerLevel: 0.1, element: 'lightning', prereq: 'energyShield', synergy: [{ skill: 'chainLightning', pct: 8 }, { skill: 'staticField', pct: 5 }] }),
+    thunderstorm: S('thunderstorm', '雷暴', 'lightning', 'active', { tags: ['aoe', 'lightning', 'finisher'], desc: '环绕落雷清场', damageMult: 1.45, cooldown: 6.5, duration: 5, lingerTick: 0.45, aoe: true, aoeRadius: 4.8, aoePerLevel: 0.1, element: 'lightning', prereq: 'energyShield', synergy: [{ skill: 'chainLightning', pct: 8 }, { skill: 'staticField', pct: 5 }] }),
   },
   druid: {
     firestorm: S('firestorm', '火风暴', 'elem', 'active', { tags: ['aoe', 'fire', 'opener'], desc: '螺旋火浪', damageMult: 1.4, cooldown: 3, aoe: true, element: 'fire', synergy: [{ skill: 'fissure', pct: 8 }] }),
-    fissure: S('fissure', '裂地术', 'elem', 'active', { tags: ['aoe', 'fire'], desc: '地面喷火', damageMult: 1.6, cooldown: 6, aoe: true, element: 'fire', prereq: 'firestorm', synergy: [{ skill: 'firestorm', pct: 8 }] }),
-    tornado: S('tornado', '龙卷风', 'elem', 'active', { tags: ['projectile', 'phys', 'aoe', 'window'], desc: '小型气旋', damageMult: 1.5, cooldown: 4, aoe: true, synergy: [{ skill: 'hurricane', pct: 10 }] }),
-    hurricane: S('hurricane', '飓风', 'elem', 'active', { tags: ['aoe', 'ice', 'finisher'], desc: '环绕暴风', damageMult: 1.3, cooldown: 12, aoe: true, element: 'ice', prereq: 'tornado', synergy: [{ skill: 'tornado', pct: 10 }, { skill: 'firestorm', pct: 5 }] }),
+    fissure: S('fissure', '裂地术', 'elem', 'active', { tags: ['aoe', 'fire'], desc: '地面喷火', damageMult: 1.6, cooldown: 6, duration: 5, lingerTick: 0.45, aoe: true, aoeRadius: 2.6, element: 'fire', prereq: 'firestorm', synergy: [{ skill: 'firestorm', pct: 8 }] }),
+    tornado: S('tornado', '龙卷风', 'elem', 'active', { tags: ['projectile', 'phys', 'aoe', 'window'], desc: '小型气旋。风行者套装命中后续飓风', damageMult: 1.5, cooldown: 4, aoe: true, synergy: [{ skill: 'hurricane', pct: 12 }] }),
+    hurricane: S('hurricane', '飓风', 'elem', 'active', { tags: ['aoe', 'ice', 'finisher'], desc: '环绕暴风。人猿之皮可在变形中释放', damageMult: 1.3, cooldown: 12, duration: 8, lingerTick: 0.5, aoe: true, aoeRadius: 3.4, element: 'ice', prereq: 'tornado', synergy: [{ skill: 'tornado', pct: 10 }, { skill: 'firestorm', pct: 5 }] }),
     volcano: S('volcano', '火山', 'elem', 'active', { tags: ['aoe', 'fire', 'finisher'], desc: '喷发岩浆柱', damageMult: 1.7, cooldown: 8, aoe: true, aoeRadius: 2.8, element: 'fire', prereq: 'hurricane', synergy: [{ skill: 'fissure', pct: 8 }] }),
     werewolf: S('werewolf', '狼人', 'shape', 'buff', { tags: ['shape', 'opener'], desc: '攻速与伤害（变形）', damageBonus: 0.05, attackSpeed: 0.02, cooldown: 6, buffDuration: 30, exclusive: 'shape' }),
-    fury: S('fury', '狂怒', 'shape', 'active', { tags: ['melee', 'phys', 'finisher'], desc: '对周围撕咬', damageMult: 1.2, cooldown: 6, aoe: true, prereq: 'werewolf', synergy: [{ skill: 'werewolf', pct: 10 }] }),
+    fury: S('fury', '狂怒', 'shape', 'active', { tags: ['melee', 'phys', 'finisher'], desc: '狼人撕咬。兽皮套装核心输出', damageMult: 1.25, cooldown: 6, aoe: true, prereq: 'werewolf', synergy: [{ skill: 'werewolf', pct: 12 }] }),
     werebear: S('werebear', '熊人', 'shape', 'buff', { tags: ['shape'], desc: '生命与护甲', hpBonus: 0.08, armorBonus: 0.08, cooldown: 6, buffDuration: 30, exclusive: 'shape', prereq: 'fury' }),
     shockwave: S('shockwave', '冲击波', 'shape', 'active', { tags: ['aoe', 'phys', 'control'], desc: '波状眩晕', damageMult: 1.3, cooldown: 8, aoe: true, prereq: 'werebear', synergy: [{ skill: 'werebear', pct: 9 }] }),
     maul: S('maul', '重殴', 'shape', 'active', { tags: ['melee', 'phys', 'aoe'], desc: '熊形态重殴周围', damageMult: 1.8, cooldown: 5, aoe: true, prereq: 'shockwave', synergy: [{ skill: 'werebear', pct: 10 }] }),
@@ -288,13 +288,13 @@ const SKILLS = {
   },
   assassin: {
     fireBlast: S('fireBlast', '火焰爆弹', 'trap', 'active', { tags: ['trap', 'fire', 'opener'], desc: '触发爆炸陷阱', damageMult: 1.5, cooldown: 2, aoe: true, element: 'fire', synergy: [{ skill: 'lightningSentry', pct: 6 }] }),
-    lightningSentry: S('lightningSentry', '闪电守卫', 'trap', 'active', { tags: ['trap', 'lightning', 'dot'], desc: '图腾放电', damageMult: 0.8, cooldown: 9, aoe: true, element: 'lightning', prereq: 'fireBlast', synergy: [{ skill: 'fireBlast', pct: 8 }] }),
-    deathSentry: S('deathSentry', '死亡守卫', 'trap', 'active', { tags: ['trap', 'fire', 'poison'], desc: '死亡爆炸+毒', damageMult: 2.0, cooldown: 12, aoe: true, element: 'fire', prereq: 'lightningSentry', synergy: [{ skill: 'fireBlast', pct: 9 }] }),
-    bladeFury: S('bladeFury', '刀刃之井', 'trap', 'active', { tags: ['trap', 'phys', 'aoe', 'finisher'], desc: '旋转刀刃', damageMult: 1.1, cooldown: 10, aoe: true, prereq: 'deathSentry', synergy: [{ skill: 'lightningSentry', pct: 7 }] }),
-    wakeOfFire: S('wakeOfFire', '火焰之浪', 'trap', 'active', { tags: ['trap', 'fire', 'aoe'], desc: '波浪火墙陷阱', damageMult: 1.2, cooldown: 7, aoe: true, aoeRadius: 3.0, element: 'fire', prereq: 'bladeFury', synergy: [{ skill: 'fireBlast', pct: 8 }] }),
+    lightningSentry: S('lightningSentry', '闪电守卫', 'trap', 'active', { tags: ['trap', 'lightning', 'dot'], desc: '图腾放电。机关师套装触发死亡守卫', damageMult: 0.8, cooldown: 9, duration: 10, lingerTick: 0.5, plantSummon: true, summonCap: 5, aoe: true, aoeRadius: 3.2, element: 'lightning', prereq: 'fireBlast', synergy: [{ skill: 'fireBlast', pct: 8 }, { skill: 'deathSentry', pct: 6 }] }),
+    deathSentry: S('deathSentry', '死亡守卫', 'trap', 'active', { tags: ['trap', 'fire', 'poison'], desc: '死亡爆炸+毒。机关师 4 件由电塔追加', damageMult: 2.0, cooldown: 12, duration: 10, lingerTick: 0.7, plantSummon: true, summonCap: 3, aoe: true, aoeRadius: 3.4, element: 'fire', prereq: 'lightningSentry', synergy: [{ skill: 'lightningSentry', pct: 8 }, { skill: 'fireBlast', pct: 6 }] }),
+    bladeFury: S('bladeFury', '刀刃之井', 'trap', 'active', { tags: ['trap', 'phys', 'aoe', 'finisher'], desc: '旋转刀刃', damageMult: 1.1, cooldown: 10, duration: 8, lingerTick: 0.4, aoe: true, aoeRadius: 2.8, prereq: 'deathSentry', synergy: [{ skill: 'lightningSentry', pct: 7 }] }),
+    wakeOfFire: S('wakeOfFire', '火焰之浪', 'trap', 'active', { tags: ['trap', 'fire', 'aoe'], desc: '波浪火墙陷阱', damageMult: 1.2, cooldown: 7, duration: 6, lingerTick: 0.4, aoe: true, aoeRadius: 3.0, element: 'fire', prereq: 'bladeFury', synergy: [{ skill: 'fireBlast', pct: 8 }] }),
     tigerStrike: S('tigerStrike', '虎击', 'martial', 'active', { tags: ['melee', 'combo', 'opener'], desc: '叠充能层', damageMult: 1.2, cooldown: 0 }),
     dragonTalon: S('dragonTalon', '龙爪', 'martial', 'active', { tags: ['melee', 'phys'], desc: '踢击破甲', damageMult: 1.6, cooldown: 5, prereq: 'tigerStrike', synergy: [{ skill: 'phoenix', pct: 6 }] }),
-    phoenix: S('phoenix', '凤凰打击', 'martial', 'active', { tags: ['melee', 'fire', 'ice', 'lightning', 'finisher'], desc: '消耗层数三元素波', damageMult: 2.4, cooldown: 8, aoe: true, prereq: 'dragonTalon', synergy: [{ skill: 'tigerStrike', pct: 12 }] }),
+    phoenix: S('phoenix', '凤凰打击', 'martial', 'active', { tags: ['melee', 'fire', 'ice', 'lightning', 'finisher'], desc: '消耗层数三元素波。刃舞套装窗口内增伤', damageMult: 2.5, cooldown: 8, aoe: true, prereq: 'dragonTalon', synergy: [{ skill: 'tigerStrike', pct: 12 }, { skill: 'fists', pct: 5 }] }),
     fists: S('fists', '拳刃风暴', 'martial', 'active', { tags: ['melee', 'aoe', 'phys'], desc: '快速多段', damageMult: 0.9, cooldown: 6, aoe: true, hits: 3, prereq: 'phoenix', synergy: [{ skill: 'tigerStrike', pct: 5 }] }),
     dragonFlight: S('dragonFlight', '龙飞', 'martial', 'active', { tags: ['melee', 'aoe', 'phys'], desc: '踢击溅射周围', damageMult: 1.7, cooldown: 6, aoe: true, prereq: 'fists', synergy: [{ skill: 'phoenix', pct: 6 }] }),
     cloak: S('cloak', '暗影斗篷', 'shadow', 'buff', { tags: ['buff'], desc: '降低敌命中（减伤）', damageReduction: 0.03, cooldown: 6, buffDuration: 12 }),
@@ -314,10 +314,10 @@ const SKILLS = {
     vigor: S('vigor', '救赎', 'def', 'aura', { tags: ['aura'], desc: '击杀回复生命与魔法，降低牺牲自损', killHeal: 0.012, rangeBonus: 0.03, hpCostReduce: 0.08, resOnKill: 5, auraSlot: 'def', prereq: 'salvation' }),
     holyShield: S('holyShield', '神圣庇护', 'def', 'buff', { tags: ['buff'], desc: '格挡减伤；受击时有几率震慑来犯', damageReduction: 0.045, cooldown: 8, buffDuration: 26, blockStun: 0.18, prereq: 'vigor' }),
     defiance: S('defiance', '圣所', 'def', 'aura', { tags: ['aura'], desc: '护甲与荆棘；对亡灵/恶魔额外伤害并压制亡灵', armorBonus: 0.07, reflectPct: 0.12, vsUndead: 0.18, vsDemon: 0.12, auraSlot: 'def', prereq: 'holyShield' }),
-    zeal: S('zeal', '热诚', 'combat', 'active', { tags: ['melee', 'phys', 'combo', 'opener'], desc: '连锁打击。狂热光环下额外连击', damageMult: 1.1, cooldown: 0, hits: 2, synergy: [{ skill: 'sacrifice', pct: 8 }, { skill: 'fanaticism', pct: 6 }] }),
+    zeal: S('zeal', '热诚', 'combat', 'active', { tags: ['melee', 'phys', 'combo', 'opener'], desc: '连锁打击。十字军套装额外连击，狂热光环再加一击', damageMult: 1.1, cooldown: 0, hits: 2, synergy: [{ skill: 'sacrifice', pct: 8 }, { skill: 'fanaticism', pct: 8 }] }),
     sacrifice: S('sacrifice', '牺牲', 'combat', 'active', { tags: ['melee', 'phys'], desc: '自损换高伤。力量提高输出，救赎减轻自损', damageMult: 2.05, cooldown: 5, hpCost: 0.045, prereq: 'zeal', synergy: [{ skill: 'zeal', pct: 6 }, { skill: 'might', pct: 7 }] }),
-    blessedHammer: S('blessedHammer', '神圣之锤', 'combat', 'active', { tags: ['aoe', 'magic', 'window'], desc: '旋转圣锤。信念下无视护甲、范围更大', damageMult: 1.45, cooldown: 4, aoe: true, aoeRadius: 2.6, aoePerLevel: 0.06, element: 'magic', prereq: 'sacrifice', synergy: [{ skill: 'concentration', pct: 9 }, { skill: 'holyBolt', pct: 5 }] }),
-    fistOfHeavens: S('fistOfHeavens', '天堂之拳', 'combat', 'active', { tags: ['aoe', 'lightning', 'finisher'], desc: '天罚落雷，对恶魔更高。神圣冲击下额外电击', damageMult: 2.55, cooldown: 9, aoe: true, aoeRadius: 2.8, element: 'lightning', prereq: 'blessedHammer', synergy: [{ skill: 'holyShock', pct: 8 }, { skill: 'concentration', pct: 5 }] }),
+    blessedHammer: S('blessedHammer', '神圣之锤', 'combat', 'active', { tags: ['aoe', 'magic', 'window'], desc: '旋转圣锤。仪仗套装改为环绕自身；信念下破甲', damageMult: 1.45, cooldown: 4, aoe: true, aoeRadius: 2.6, aoePerLevel: 0.06, element: 'magic', prereq: 'sacrifice', synergy: [{ skill: 'concentration', pct: 10 }, { skill: 'holyBolt', pct: 5 }] }),
+    fistOfHeavens: S('fistOfHeavens', '天堂之拳', 'combat', 'active', { tags: ['aoe', 'lightning', 'finisher'], desc: '天罚落雷。圣光套装额外落雷，神圣冲击再强化', damageMult: 2.55, cooldown: 9, aoe: true, aoeRadius: 2.8, element: 'lightning', prereq: 'blessedHammer', synergy: [{ skill: 'holyShock', pct: 9 }, { skill: 'concentration', pct: 5 }] }),
     holyBolt: S('holyBolt', '圣光弹', 'combat', 'active', { tags: ['projectile', 'magic', 'aoe'], desc: '弹跳圣光。命中亡灵/恶魔时治疗自己', damageMult: 1.5, cooldown: 3.5, aoe: true, hits: 2, element: 'magic', holyHeal: 0.03, prereq: 'fistOfHeavens', synergy: [{ skill: 'blessedHammer', pct: 6 }, { skill: 'concentration', pct: 4 }] }),
   },
   necro: {
@@ -327,9 +327,9 @@ const SKILLS = {
     revive: S('revive', '复活', 'summon', 'passive', { tags: ['summon', 'finisher'], desc: '近战尸袭，复活伤害', summonBonus: 0.12, prereq: 'clayGolem', summonKind: 'revived', summonCount: (lv) => Math.min(3, 1 + Math.floor(lv / 4)), summonPal: ['#4a2030', '#a05070', '#e090a0'], summonScale: 0.78 }),
     fireGolem: S('fireGolem', '火焰石魔', 'summon', 'passive', { tags: ['summon', 'fire'], desc: '远程喷火石魔', summonBonus: 0.09, prereq: 'revive', summonKind: 'golem', summonCount: () => 1, summonPal: ['#6a2010', '#e05020', '#ffb070'], summonScale: 1.1 }),
     teeth: S('teeth', '牙', 'poison', 'active', { tags: ['projectile', 'magic', 'opener'], desc: '骨牙', damageMult: 1.1, cooldown: 0, hits: 3, element: 'magic', synergy: [{ skill: 'boneSpear', pct: 8 }] }),
-    poisonNova: S('poisonNova', '毒新星', 'poison', 'active', { tags: ['aoe', 'poison', 'dot', 'finisher'], desc: '环状毒', damageMult: 1.5, cooldown: 8, aoe: true, element: 'poison', prereq: 'teeth', synergy: [{ skill: 'teeth', pct: 8 }] }),
-    boneSpear: S('boneSpear', '骨矛', 'poison', 'active', { tags: ['projectile', 'magic', 'pierce'], desc: '穿透骨矛', damageMult: 1.8, cooldown: 4, element: 'magic', prereq: 'poisonNova', synergy: [{ skill: 'teeth', pct: 7 }] }),
-    corpseExplosion: S('corpseExplosion', '尸爆', 'poison', 'active', { tags: ['aoe', 'fire', 'finisher'], desc: '尸体爆炸（无尸时降系数）', damageMult: 2.2, cooldown: 5, aoe: true, element: 'fire', prereq: 'boneSpear' }),
+    poisonNova: S('poisonNova', '毒新星', 'poison', 'active', { tags: ['aoe', 'poison', 'dot', 'finisher'], desc: '环状毒。剧毒仪典留下毒池', damageMult: 1.5, cooldown: 8, aoe: true, element: 'poison', prereq: 'teeth', synergy: [{ skill: 'teeth', pct: 8 }, { skill: 'lowerResist', pct: 5 }] }),
+    boneSpear: S('boneSpear', '骨矛', 'poison', 'active', { tags: ['projectile', 'magic', 'pierce'], desc: '穿透骨矛。骨仪套装额外穿透段', damageMult: 1.8, cooldown: 4, element: 'magic', prereq: 'poisonNova', synergy: [{ skill: 'teeth', pct: 8 }, { skill: 'boneSpirit', pct: 5 }] }),
+    corpseExplosion: S('corpseExplosion', '尸爆', 'poison', 'active', { tags: ['aoe', 'fire', 'finisher'], desc: '尸体爆炸。白骨军团下召唤物协同引爆', damageMult: 2.2, cooldown: 5, aoe: true, element: 'fire', prereq: 'boneSpear', synergy: [{ skill: 'raiseSkeleton', pct: 6 }] }),
     boneSpirit: S('boneSpirit', '骨魂', 'poison', 'active', { tags: ['projectile', 'magic'], desc: '追踪骨魂', damageMult: 2.0, cooldown: 5, element: 'magic', prereq: 'corpseExplosion', synergy: [{ skill: 'boneSpear', pct: 8 }] }),
     amplify: S('amplify', '增幅伤害', 'curse', 'active', { tags: ['curse', 'window'], desc: '诅咒：敌人受到的物理伤害提高（唯一诅咒）', damageMult: 0.25, cooldown: 8, curse: { id: 'amplify', dur: 8, physTaken: 0.2 } }),
     weaken: S('weaken', '削弱', 'curse', 'active', { tags: ['curse'], desc: '诅咒：降低敌人攻击力', damageMult: 0.15, cooldown: 10, prereq: 'amplify', curse: { id: 'weaken', dur: 9, dmgDown: 0.16 } }),
@@ -555,52 +555,107 @@ const SETS = {
     id: 'sigons', name: '西刚的守护', pieceCount: 4, reqClass: 'berserker', color: '#c45a3a',
     bonuses: {
       2: { desc: '攻击速度 +15%，护甲 +25；猛击伤害 +20%', attackSpeed: 0.15, armor: 25, skillDmg: { smash: 0.2 } },
-      4: { desc: '+2 全技能、生命 +200、减伤 8%；授予旋风斩，旋风伤害 +30%', skillLevel: 2, hp: 200, damageReduction: 0.08, skillGrant: { whirlwind: 1 }, skillDmg: { whirlwind: 0.3 } },
+      4: { desc: '+2 全技能、生命 +200、减伤 8%；授予旋风斩并额外 1 段打击，旋风伤害 +30%', skillLevel: 2, hp: 200, damageReduction: 0.08, skillGrant: { whirlwind: 1 }, skillDmg: { whirlwind: 0.3 }, power: { skillHits: { whirlwind: 1 } } },
     },
   },
   talrasha: {
     id: 'talrasha', name: '塔拉夏的法理', pieceCount: 4, reqClass: 'sorceress', color: '#8860d0',
     bonuses: {
       2: { desc: '火/冰/电伤害 +18%；火球伤害 +20%', fireDmgPct: 0.18, iceDmgPct: 0.18, lightningDmgPct: 0.18, skillDmg: { fireball: 0.2 } },
-      4: { desc: '攻速 +10%、生命 +80、全抗 +12%；授予陨石，陨石伤害 +35%', attackSpeed: 0.1, hp: 80, allRes: 0.12, skillGrant: { meteor: 1 }, skillDmg: { meteor: 0.35 } },
+      4: { desc: '攻速 +10%、生命 +80、全抗 +12%；授予陨石，落地后追加火球，陨石伤害 +35%', attackSpeed: 0.1, hp: 80, allRes: 0.12, skillGrant: { meteor: 1 }, skillDmg: { meteor: 0.35 }, power: { echoSkill: { meteor: 'fireball' } } },
     },
   },
   glory: {
     id: 'glory', name: '亚马逊的荣光', pieceCount: 4, reqClass: 'amazon', color: '#c8a050',
     bonuses: {
       2: { desc: '穿透 +15%，暴击 +6%；多重射击伤害 +20%', pierceBonus: 0.15, critRate: 0.06, skillDmg: { multiShot: 0.2 } },
-      4: { desc: '物理伤害 +22%，攻速 +8%；授予导引箭，其伤害 +35%', physDmgPct: 0.22, attackSpeed: 0.08, skillGrant: { guided: 1 }, skillDmg: { guided: 0.35 } },
+      4: { desc: '物理伤害 +22%，攻速 +8%；授予导引箭；多重射击再分裂 2 支，导引箭伤害 +35%', physDmgPct: 0.22, attackSpeed: 0.08, skillGrant: { guided: 1 }, skillDmg: { guided: 0.35, multiShot: 0.2 }, power: { skillHits: { multiShot: 2 } } },
     },
   },
   windwalk: {
     id: 'windwalk', name: '风行者之息', pieceCount: 4, reqClass: 'druid', color: '#6a8a40',
     bonuses: {
       2: { desc: '物理伤害 +14%，生命 +60；龙卷风伤害 +20%', physDmgPct: 0.14, hp: 60, skillDmg: { tornado: 0.2 } },
-      4: { desc: '技能等级 +1，全抗 +10%，召唤伤害 +20%；授予飓风，飓风伤害 +35%', skillLevel: 1, allRes: 0.1, summonBonus: 0.2, skillGrant: { hurricane: 1 }, skillDmg: { hurricane: 0.35 } },
+      4: { desc: '技能等级 +1，全抗 +10%，召唤伤害 +20%；授予飓风；龙卷风命中后追加飓风', skillLevel: 1, allRes: 0.1, summonBonus: 0.2, skillGrant: { hurricane: 1 }, skillDmg: { hurricane: 0.35 }, power: { echoSkill: { tornado: 'hurricane' } } },
     },
   },
   shadow: {
     id: 'shadow', name: '影舞者套装', pieceCount: 4, reqClass: 'assassin', color: '#a070c0',
     bonuses: {
       2: { desc: '攻速 +12%，暴击 +5%；龙爪伤害 +20%', attackSpeed: 0.12, critRate: 0.05, skillDmg: { dragonTalon: 0.2 } },
-      4: { desc: '陷阱与武学伤害 +20%；授予刀刃之井，其伤害 +35%', physDmgPct: 0.12, lightningDmgPct: 0.12, skillGrant: { bladeFury: 1 }, skillDmg: { bladeFury: 0.35 } },
+      4: { desc: '陷阱与武学伤害 +20%；授予刀刃之井并额外 2 段，其伤害 +35%', physDmgPct: 0.12, lightningDmgPct: 0.12, skillGrant: { bladeFury: 1 }, skillDmg: { bladeFury: 0.35 }, power: { skillHits: { bladeFury: 2 } } },
     },
   },
   hallowed: {
     id: 'hallowed', name: '圣光裁决', pieceCount: 4, reqClass: 'paladin', color: '#e8d070',
     bonuses: {
       2: { desc: '护甲 +30，全抗 +8%；热诚伤害 +15%', armor: 30, allRes: 0.08, skillDmg: { zeal: 0.15 } },
-      4: { desc: '光环与战斗技能 +1，减伤 6%；授予天堂之拳，其伤害 +35%', skillLevel: 1, damageReduction: 0.06, skillGrant: { fistOfHeavens: 1 }, skillDmg: { fistOfHeavens: 0.35 } },
+      4: { desc: '光环与战斗技能 +1，减伤 6%；授予天堂之拳并额外落雷，其伤害 +35%', skillLevel: 1, damageReduction: 0.06, skillGrant: { fistOfHeavens: 1 }, skillDmg: { fistOfHeavens: 0.35 }, power: { skillHits: { fistOfHeavens: 2 } } },
     },
   },
   trangeir: {
     id: 'trangeir', name: '特兰基尔骨仪', pieceCount: 4, reqClass: 'necro', color: '#b09090',
     bonuses: {
       2: { desc: '召唤伤害 +18%，生命 +50；牙伤害 +20%', summonBonus: 0.18, hp: 50, skillDmg: { teeth: 0.2 } },
-      4: { desc: '毒素伤害 +20%，技能等级 +1；授予骨矛，骨矛伤害 +35%', poisonDmgPct: 0.2, skillLevel: 1, skillGrant: { boneSpear: 1 }, skillDmg: { boneSpear: 0.35 } },
+      4: { desc: '毒素伤害 +20%，技能等级 +1；授予骨矛并额外穿透段，骨矛伤害 +35%', poisonDmgPct: 0.2, skillLevel: 1, skillGrant: { boneSpear: 1 }, skillDmg: { boneSpear: 0.35 }, power: { skillHits: { boneSpear: 2 }, skillPierce: { boneSpear: true } } },
     },
   },
 };
+
+const CLASS_BUILDS = {
+  berserker: [
+    { id: 'ww', name: '旋风斩', hint: '不朽之王 / 西刚', setIds: ['immortal', 'sigons'], itemIds: ['death_mask', 'arreats', 'lastwish', 'calltoarms', 'rorg'] },
+    { id: 'frenzy', name: '狂乱', hint: '破军狂澜', setIds: ['wreckage'], itemIds: ['butcher_cleaver', 'crowbill', 'grief', 'beast', 'rorg'] },
+  ],
+  amazon: [
+    { id: 'bow', name: '多重 / 扫射', hint: '荣光 / 苍穹', setIds: ['glory', 'sky'], itemIds: ['windforce', 'riphook', 'lycander', 'faith', 'rorg'] },
+    { id: 'jav', name: '闪电之怒', hint: '女武神投枪', setIds: ['javelin'], itemIds: ['titans', 'thunderstroke', 'rorg'] },
+  ],
+  sorceress: [
+    { id: 'fire', name: '陨石火球', hint: '塔拉夏 / 地狱火炬', setIds: ['talrasha', 'infernal', 'cathan'], itemIds: ['phoenix_orb', 'eschuta', 'magefist', 'rorg'] },
+    { id: 'ice', name: '暴风雪', hint: '霜帷 / 极地', setIds: ['frostveil', 'arctic'], itemIds: ['frostburn', 'nightwing', 'deathsfathom', 'rorg'] },
+    { id: 'light', name: '连锁闪电', hint: '雷纹', setIds: ['orbiter'], itemIds: ['eschuta', 'oculus', 'wizspike', 'rorg'] },
+  ],
+  druid: [
+    { id: 'shape', name: '狼人狂怒', hint: '兽皮图腾', setIds: ['werehide'], itemIds: ['ape_hide', 'jalal', 'rorg'] },
+    { id: 'storm', name: '飓风', hint: '风行者 / 狼群领主', setIds: ['windwalk', 'packlord'], itemIds: ['heartot', 'spirit_keeper', 'rorg'] },
+  ],
+  assassin: [
+    { id: 'trap', name: '陷阱', hint: '机关师 / 影舞者', setIds: ['trapsmith', 'shadow'], itemIds: ['natalya', 'firelizards', 'shadowdance', 'rorg'] },
+    { id: 'martial', name: '凤凰打击', hint: '刃舞', setIds: ['clawdance'], itemIds: ['bartucs', 'shadowdancer', 'rorg'] },
+  ],
+  paladin: [
+    { id: 'hammer', name: '神圣之锤', hint: '圣锤仪仗', setIds: ['hammerdin'], itemIds: ['heaven_scepter', 'rorg'] },
+    { id: 'zeal', name: '热诚', hint: '十字军', setIds: ['zealot'], itemIds: ['grizwold', 'rorg'] },
+    { id: 'foh', name: '天堂之拳', hint: '圣光裁决', setIds: ['hallowed'], itemIds: ['stormlash', 'seraph', 'herald', 'rorg'] },
+  ],
+  necro: [
+    { id: 'bone', name: '骨矛', hint: '特兰基尔骨仪', setIds: ['trangeir'], itemIds: ['boneshade', 'homunculus', 'rorg'] },
+    { id: 'ce', name: '尸爆', hint: '白骨军团', setIds: ['bonearmy'], itemIds: ['homunculus', 'marrowwalk', 'rorg'] },
+    { id: 'poison', name: '毒新星', hint: '剧毒仪典', setIds: ['venom'], itemIds: ['deathsweb', 'loath', 'rorg'] },
+  ],
+};
+
+function classBuilds(charId) {
+  return CLASS_BUILDS[charId] || [];
+}
+
+function getHeroBuild(hero) {
+  if (!hero) return null;
+  return classBuilds(hero.charId).find(b => b.id === hero.buildId) || null;
+}
+
+function itemMatchesBuild(hero, item) {
+  const b = getHeroBuild(hero);
+  if (!b || !item) return false;
+  const named = item.setId || item.quality === 'unique' || item.quality === 'ancientUnique'
+    || item.quality === 'legendary' || item.quality === 'ancient'
+    || item.quality === 'set' || item.quality === 'ancientSet';
+  if (!named) return false;
+  if (item.setId && (b.setIds || []).includes(item.setId)) return true;
+  if (item.id && (b.itemIds || []).includes(item.id)) return true;
+  return false;
+}
 
 const AFFIX_KIND = {
   str: 'attr', agi: 'attr', int: 'attr', vit: 'attr', wis: 'attr',
@@ -628,7 +683,7 @@ const AFFIX_POOL = {
     { id: 'critRate', name: '暴击率', stat: 'critRate', min: 3, max: 15, suffix: '%', kind: 'atk' },
     { id: 'atkSpd', name: '攻击速度', stat: 'attackSpeed', min: 5, max: 16, suffix: '%', kind: 'atk' },
     { id: 'range', name: '攻击距离', stat: 'attackRange', min: 8, max: 24, suffix: '%', kind: 'atk' },
-    { id: 'critDmg', name: '暴击伤害', stat: 'critDmg', min: 12, max: 45, suffix: '%', kind: 'atk' },
+    { id: 'critDmg', name: '暴击伤害', stat: 'critDmg', min: 6, max: 23, suffix: '%', kind: 'atk' },
   ],
   suffix: [
     { id: 'hp', name: '生命', stat: 'hp', min: 40, max: 220, kind: 'def' },
@@ -664,22 +719,22 @@ const EXCLUSIVE_AFFIX_POOL = [
 ];
 
 const UNIQUE_ITEMS = [
-  { id: 'windforce', name: '风之力', slot: 'weapon', weaponClass: 'bow', icon: 'bow', reqClass: 'amazon', quality: 'unique', baseDamage: 38, legendaryEffect: '多重射击额外分裂', morphId: 'pierce', morphSkill: 'multiShot', affixes: [{ stat: 'physDmgPct', value: 22, name: '物理伤害' }, { stat: 'agi', value: 14, name: '敏捷' }, { stat: 'attackSpeed', value: 12, name: '攻击速度' }, { stat: 'attackRange', value: 18, name: '攻击距离' }] },
-  { id: 'titans', name: '泰坦之纪', slot: 'weapon', weaponClass: 'javelin', icon: 'javelin', reqClass: 'amazon', quality: 'unique', baseDamage: 34, legendaryEffect: '标枪伤害与回复', morphId: 'trail', morphSkill: 'lightningFury', affixes: [{ stat: 'str', value: 12, name: '力量' }, { stat: 'hp', value: 40, name: '生命' }] },
-  { id: 'frostburn', name: '霜燃', slot: 'gloves', reqClass: 'sorceress', quality: 'unique', armor: 8, legendaryEffect: '冰系技能更易冻结', morphId: 'trail', morphSkill: 'blizzard', affixes: [{ stat: 'int', value: 10, name: '智力' }, { stat: 'critRate', value: 8, name: '暴击率' }] },
+  { id: 'windforce', name: '风之力', slot: 'weapon', weaponClass: 'bow', icon: 'bow', reqClass: 'amazon', quality: 'unique', baseDamage: 38, legendaryEffect: '多重射击再分裂', morphId: 'split', morphSkill: 'multiShot', affixes: [{ stat: 'physDmgPct', value: 22, name: '物理伤害' }, { stat: 'agi', value: 14, name: '敏捷' }, { stat: 'attackSpeed', value: 12, name: '攻击速度' }, { stat: 'attackRange', value: 18, name: '攻击距离' }] },
+  { id: 'titans', name: '泰坦之纪', slot: 'weapon', weaponClass: 'javelin', icon: 'javelin', reqClass: 'amazon', quality: 'unique', baseDamage: 34, legendaryEffect: '闪电之怒留下电轨', morphId: 'trail', morphSkill: 'lightningFury', affixes: [{ stat: 'str', value: 12, name: '力量' }, { stat: 'hp', value: 40, name: '生命' }] },
+  { id: 'frostburn', name: '霜燃', slot: 'gloves', reqClass: 'sorceress', quality: 'unique', armor: 8, legendaryEffect: '暴风雪留下冰面', morphId: 'trail', morphSkill: 'blizzard', affixes: [{ stat: 'int', value: 10, name: '智力' }, { stat: 'critRate', value: 8, name: '暴击率' }] },
   { id: 'duriel_shell', name: '督瑞尔的壳', slot: 'chest', quality: 'unique', armor: 32, legendaryEffect: '致命伤害留 1 血并无敌 3 秒（60s）', affixes: [{ stat: 'armor', value: 25, name: '护甲' }, { stat: 'hp', value: 70, name: '生命' }] },
-  { id: 'death_mask', name: '死亡之眼', slot: 'helmet', icon: 'helm', reqClass: 'berserker', quality: 'unique', armor: 14, legendaryEffect: '对稀有/Boss 暴击提升', morphId: 'reset', morphSkill: 'whirlwind', affixes: [{ stat: 'critRate', value: 10, name: '暴击率' }, { stat: 'critDmg', value: 30, name: '暴击伤害' }] },
-  { id: 'ape_hide', name: '人猿之皮', slot: 'chest', icon: 'robe', reqClass: 'druid', quality: 'unique', armor: 22, legendaryEffect: '变形生命提升', morphId: 'shapecast', morphSkill: 'hurricane', affixes: [{ stat: 'hp', value: 80, name: '生命' }, { stat: 'str', value: 10, name: '力量' }] },
-  { id: 'bartucs', name: '巴图克之爪', slot: 'weapon', weaponClass: 'claw', icon: 'claw', reqClass: 'assassin', quality: 'unique', baseDamage: 32, legendaryEffect: '武学连击额外一层', affixes: [{ stat: 'agi', value: 16, name: '敏捷' }, { stat: 'attackSpeed', value: 14, name: '攻击速度' }] },
-  { id: 'eschuta', name: '艾斯屈塔之杖', slot: 'weapon', weaponClass: 'caster', icon: 'orb', reqClass: 'sorceress', quality: 'unique', baseDamage: 20, legendaryEffect: '元素技能互相触发', affixes: [{ stat: 'int', value: 18, name: '智力' }, { stat: 'fireDmgPct', value: 16, name: '火系伤害' }, { stat: 'lightningDmgPct', value: 16, name: '电系伤害' }] },
-  { id: 'heaven_scepter', name: '天堂权杖', slot: 'weapon', weaponClass: 'melee', icon: 'scepter', reqClass: 'paladin', quality: 'unique', baseDamage: 30, legendaryEffect: '圣锤环绕半径增加', affixes: [{ stat: 'str', value: 12, name: '力量' }, { stat: 'allRes', value: 10, name: '全抗性' }] },
-  { id: 'homunculus', name: '魔身之颅', slot: 'weapon', weaponClass: 'caster', icon: 'wand', reqClass: 'necro', quality: 'unique', baseDamage: 19, legendaryEffect: '召唤上限提升', affixes: [{ stat: 'int', value: 14, name: '智力' }, { stat: 'hp', value: 50, name: '生命' }] },
+  { id: 'death_mask', name: '死亡之眼', slot: 'helmet', icon: 'helm', reqClass: 'berserker', quality: 'unique', armor: 14, legendaryEffect: '击杀精英重置旋风斩', morphId: 'reset', morphSkill: 'whirlwind', affixes: [{ stat: 'critRate', value: 10, name: '暴击率' }, { stat: 'critDmg', value: 15, name: '暴击伤害' }] },
+  { id: 'ape_hide', name: '人猿之皮', slot: 'chest', icon: 'robe', reqClass: 'druid', quality: 'unique', armor: 22, legendaryEffect: '变形中仍可释放飓风', morphId: 'shapecast', morphSkill: 'hurricane', affixes: [{ stat: 'hp', value: 80, name: '生命' }, { stat: 'str', value: 10, name: '力量' }] },
+  { id: 'bartucs', name: '巴图克之爪', slot: 'weapon', weaponClass: 'claw', icon: 'claw', reqClass: 'assassin', quality: 'unique', baseDamage: 32, legendaryEffect: '延长武学连招窗口', morphId: 'window', morphSkill: 'phoenix', affixes: [{ stat: 'agi', value: 16, name: '敏捷' }, { stat: 'attackSpeed', value: 14, name: '攻击速度' }] },
+  { id: 'eschuta', name: '艾斯屈塔之杖', slot: 'weapon', weaponClass: 'caster', icon: 'orb', reqClass: 'sorceress', quality: 'unique', baseDamage: 20, legendaryEffect: '连锁闪电额外跳跃', morphId: 'chain', morphSkill: 'chainLightning', affixes: [{ stat: 'int', value: 18, name: '智力' }, { stat: 'fireDmgPct', value: 16, name: '火系伤害' }, { stat: 'lightningDmgPct', value: 16, name: '电系伤害' }] },
+  { id: 'heaven_scepter', name: '天堂权杖', slot: 'weapon', weaponClass: 'melee', icon: 'scepter', reqClass: 'paladin', quality: 'unique', baseDamage: 30, legendaryEffect: '圣锤环绕自身', morphId: 'nova', morphSkill: 'blessedHammer', affixes: [{ stat: 'str', value: 12, name: '力量' }, { stat: 'allRes', value: 10, name: '全抗性' }] },
+  { id: 'homunculus', name: '魔身之颅', slot: 'weapon', weaponClass: 'caster', icon: 'wand', reqClass: 'necro', quality: 'unique', baseDamage: 19, legendaryEffect: '普攻触发尸爆', morphId: 'proc', morphSkill: 'corpseExplosion', affixes: [{ stat: 'int', value: 14, name: '智力' }, { stat: 'hp', value: 50, name: '生命' }] },
 ];
 
 const LEGENDARY_ITEMS = [
-  { id: 'butcher_cleaver', name: '屠夫的砍刀', slot: 'weapon', weaponClass: 'melee', icon: 'axe', reqClass: 'berserker', quality: 'legendary', baseDamage: 36, legendaryEffect: '攻击 25% 流血', morphId: 'convert', morphSkill: 'smash', affixes: [{ stat: 'physDmgPct', value: 18, name: '物理伤害' }, { stat: 'str', value: 12, name: '力量' }] },
-  { id: 'soj', name: '乔丹之石', slot: 'ring1', quality: 'legendary', legendaryEffect: '技能更频繁（攻速）', morphId: 'proc', affixes: [{ stat: 'int', value: 16, name: '智力' }, { stat: 'fireDmgPct', value: 12, name: '火系伤害' }] },
-  { id: 'shadowdance', name: '影舞者披风', slot: 'chest', icon: 'robe', reqClass: 'assassin', quality: 'legendary', armor: 18, legendaryEffect: '闪避后下次必暴', affixes: [{ stat: 'agi', value: 14, name: '敏捷' }, { stat: 'critRate', value: 10, name: '暴击率' }] },
+  { id: 'butcher_cleaver', name: '屠夫的砍刀', slot: 'weapon', weaponClass: 'melee', icon: 'axe', reqClass: 'berserker', quality: 'legendary', baseDamage: 36, legendaryEffect: '猛击转为火焰并流血', morphId: 'convert', morphSkill: 'smash', affixes: [{ stat: 'physDmgPct', value: 18, name: '物理伤害' }, { stat: 'str', value: 12, name: '力量' }] },
+  { id: 'soj', name: '乔丹之石', slot: 'ring1', quality: 'legendary', legendaryEffect: '普攻 20% 触发已装备主动技能（半系数）', itemPower: { procEquipped: true }, affixes: [{ stat: 'int', value: 16, name: '智力' }, { stat: 'fireDmgPct', value: 12, name: '火系伤害' }] },
+  { id: 'shadowdance', name: '影舞者披风', slot: 'chest', icon: 'robe', reqClass: 'assassin', quality: 'legendary', armor: 18, legendaryEffect: '普攻触发死亡守卫', morphId: 'proc', morphSkill: 'deathSentry', affixes: [{ stat: 'agi', value: 14, name: '敏捷' }, { stat: 'critRate', value: 10, name: '暴击率' }] },
   { id: 'sigons_helm', name: '西刚的头盔', slot: 'helmet', icon: 'helm', quality: 'set', setId: 'sigons', reqClass: 'berserker', armor: 12, affixes: [{ stat: 'hp', value: 30, name: '生命' }, { stat: 'armor', value: 10, name: '护甲' }] },
   { id: 'sigons_gloves', name: '西刚的手套', slot: 'gloves', quality: 'set', setId: 'sigons', reqClass: 'berserker', armor: 6, affixes: [{ stat: 'attackSpeed', value: 10, name: '攻击速度' }, { stat: 'str', value: 5, name: '力量' }] },
   { id: 'sigons_boots', name: '西刚的靴子', slot: 'boots', quality: 'set', setId: 'sigons', reqClass: 'berserker', armor: 7, affixes: [{ stat: 'hp', value: 22, name: '生命' }] },

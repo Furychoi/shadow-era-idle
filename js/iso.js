@@ -110,6 +110,16 @@ class IsoField {
       fx.rx = r * (TILE_W / 2);
       fx.ry = r * (TILE_H / 2);
       this.vfx.push(fx);
+    } else if (kind === 'bolts') {
+      const n = Math.max(3, skill.hits || 5);
+      for (let i = 0; i < n; i++) {
+        const spread = (i - (n - 1) / 2) * 0.28;
+        this.vfx.push({
+          kind: 'proj', color, life: 0.44, max: 0.44, delay: i * 0.035,
+          x: from.x, y: from.y,
+          tx: dest.x + spread, ty: dest.y + ((i % 2) ? 0.2 : -0.14),
+        });
+      }
     } else if (kind === 'blizzard') {
       const r = opts.radius || skill.aoeRadius || 3.6;
       fx.life = opts.duration || skill.duration || 8;
@@ -125,11 +135,29 @@ class IsoField {
         speed: 0.7 + Math.random() * 0.6,
       }));
       this.vfx.push(fx);
-    } else if (kind === 'storm') {
-      fx.life = 0.9;
-      fx.max = 0.9;
+    } else if (kind === 'firewall') {
+      const r = opts.radius || skill.aoeRadius || 3.2;
+      fx.life = opts.duration || skill.duration || 6;
+      fx.max = fx.life;
       fx.x = dest.x;
       fx.y = dest.y;
+      fx.rx = r * (TILE_W / 2);
+      fx.ry = (r * 0.45) * (TILE_H / 2);
+      fx.flames = Array.from({ length: 12 }, (_, i) => ({
+        t: i / 11,
+        h: 12 + Math.random() * 16,
+        phase: Math.random() * Math.PI * 2,
+      }));
+      this.vfx.push(fx);
+    } else if (kind === 'storm') {
+      const r = opts.radius || skill.aoeRadius || 3.2;
+      fx.life = opts.duration || skill.duration || 0.9;
+      fx.max = fx.life;
+      fx.x = dest.x;
+      fx.y = dest.y;
+      fx.rx = r * (TILE_W / 2);
+      fx.ry = r * (TILE_H / 2);
+      if (skill.id === 'hurricane' || skill.id === 'thunderstorm') fx.follow = 'hero';
       this.vfx.push(fx);
     } else if (kind === 'trap') {
       fx.life = 1.1;
@@ -466,11 +494,45 @@ class IsoField {
           ctx.fillStyle = '#7ec8e8';
           ctx.fillRect(px - 1, y + 7, 2, 3);
         }
+      } else if (v.kind === 'firewall') {
+        const s = isoToScreen(v.x, v.y, ox, oy);
+        const rx = v.rx || 48;
+        const ry = v.ry || 16;
+        const fade = Math.min(1, v.life / 0.7);
+        ctx.globalAlpha = fade * 0.22;
+        ctx.fillStyle = '#ff6a30';
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y, rx, ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        for (const fl of v.flames || []) {
+          const wobble = Math.sin(this.t * 10 + fl.phase) * 3;
+          const px = s.x + (fl.t - 0.5) * rx * 1.8 + wobble;
+          const py = s.y - 4 + Math.sin(this.t * 7 + fl.phase) * 2;
+          const h = fl.h + Math.sin(this.t * 12 + fl.phase) * 4;
+          ctx.globalAlpha = fade * 0.85;
+          ctx.fillStyle = '#ff8844';
+          ctx.fillRect(px - 3, py - h, 6, h);
+          ctx.globalAlpha = fade * 0.7;
+          ctx.fillStyle = '#ffe080';
+          ctx.fillRect(px - 1.5, py - h - 4, 3, h * 0.55);
+        }
       } else if (v.kind === 'storm') {
         const s = isoToScreen(v.x, v.y, ox, oy);
-        for (let i = 0; i < 5; i++) {
-          const ox2 = Math.sin(this.t * 8 + i) * 11;
-          ctx.fillRect(s.x + ox2 - 2, s.y - 40 - (i % 3) * 8, 4, 10);
+        const rx = v.rx || 42;
+        const ry = v.ry || 21;
+        const fade = Math.min(1, v.life / 0.7);
+        ctx.strokeStyle = v.color || '#ffe060';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = fade * 0.55;
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        for (let i = 0; i < 6; i++) {
+          const ox2 = Math.sin(this.t * 9 + i * 1.1) * rx * 0.7;
+          const drop = (this.t * 2.4 + i * 0.35) % 1;
+          ctx.globalAlpha = fade * (1 - drop) * 0.9;
+          ctx.fillStyle = v.color || '#ffe060';
+          ctx.fillRect(s.x + ox2 - 2, s.y - 46 + drop * 40, 3, 11);
         }
       } else if (v.kind === 'trap') {
         const s = isoToScreen(v.x, v.y, ox, oy);

@@ -18,7 +18,7 @@ function addSet(def, pieces) {
 addSet(
   { id: 'immortal', name: '不朽之王', reqClass: 'berserker', color: '#c8a060', bonuses: {
     2: { desc: '生命 +70；授予旋风斩，旋风伤害 +25%', hp: 70, skillGrant: { whirlwind: 1 }, skillDmg: { whirlwind: 0.25 } },
-    4: { desc: '物理 +20%，减伤 7%；旋风伤害 +50%，旋风怒气消耗 -35%', physDmgPct: 0.2, damageReduction: 0.07, skillDmg: { whirlwind: 0.5 }, skillCostPct: { whirlwind: 0.35 } },
+    4: { desc: '物理 +20%，减伤 7%；旋风额外 2 段打击并吸血，怒气消耗 -35%', physDmgPct: 0.2, damageReduction: 0.07, skillDmg: { whirlwind: 0.5 }, skillCostPct: { whirlwind: 0.35 }, power: { skillHits: { whirlwind: 2 }, wwLifesteal: 0.04 } },
   } },
   [
     { id: 'ik_maul', name: '不朽战锤', slot: 'weapon', weaponClass: 'melee', icon: 'hammer', baseDamage: 28, affixes: [ax('str', 12, '力量'), ax('physDmgPct', 14, '物理伤害')] },
@@ -30,7 +30,7 @@ addSet(
 addSet(
   { id: 'wreckage', name: '破军狂澜', reqClass: 'berserker', color: '#e05030', bonuses: {
     2: { desc: '攻速 +12%；猛击伤害 +20%', attackSpeed: 0.12, skillDmg: { smash: 0.2 } },
-    4: { desc: '范围 +12%，物理 +16%；授予狂乱，狂乱伤害 +40%', aoePct: 0.12, physDmgPct: 0.16, skillGrant: { frenzy: 1 }, skillDmg: { frenzy: 0.4 } },
+    4: { desc: '范围 +12%，物理 +16%；授予狂乱并额外连击，狂乱伤害 +40%', aoePct: 0.12, physDmgPct: 0.16, skillGrant: { frenzy: 1 }, skillDmg: { frenzy: 0.4 }, power: { skillHits: { frenzy: 2 } } },
   } },
   [
     { id: 'wr_helm', name: '破军盔', slot: 'helmet', icon: 'helm', armor: 12, affixes: [ax('critRate', 6, '暴击率')] },
@@ -42,7 +42,7 @@ addSet(
 addSet(
   { id: 'sky', name: '苍穹猎手', reqClass: 'amazon', color: '#88b8e0', bonuses: {
     2: { desc: '攻击距离 +12%；多重射击伤害 +20%', attackRange: 0.12, skillDmg: { multiShot: 0.2 } },
-    4: { desc: '攻速 +10%，物理 +18%；授予扫射，扫射伤害 +45%', attackSpeed: 0.1, physDmgPct: 0.18, skillGrant: { strafe: 1 }, skillDmg: { strafe: 0.45 } },
+    4: { desc: '攻速 +10%，物理 +18%；授予扫射；击杀精英重置扫射冷却，扫射伤害 +45%', attackSpeed: 0.1, physDmgPct: 0.18, skillGrant: { strafe: 1 }, skillDmg: { strafe: 0.45 }, power: { killReset: 'strafe' } },
   } },
   [
     { id: 'sky_xbow', name: '苍穹十字弩', slot: 'weapon', weaponClass: 'bow', icon: 'crossbow', baseDamage: 22, affixes: [ax('agi', 10, '敏捷'), ax('attackRange', 12, '攻击距离')] },
@@ -54,7 +54,7 @@ addSet(
 addSet(
   { id: 'javelin', name: '女武神投枪', reqClass: 'amazon', color: '#d4c060', bonuses: {
     2: { desc: '电伤 +16%；充能一击伤害 +20%', lightningDmgPct: 0.16, skillDmg: { chargedStrike: 0.2 } },
-    4: { desc: '穿透 +10%，技能 +1；授予闪电之怒，其伤害 +40%', pierceBonus: 0.1, skillLevel: 1, skillGrant: { lightningFury: 1 }, skillDmg: { lightningFury: 0.4 } },
+    4: { desc: '穿透 +10%，技能 +1；授予闪电之怒并额外电球，其伤害 +40%', pierceBonus: 0.1, skillLevel: 1, skillGrant: { lightningFury: 1 }, skillDmg: { lightningFury: 0.4 }, power: { skillHits: { lightningFury: 2 } } },
   } },
   [
     { id: 'jv_spear', name: '女武神投枪', slot: 'weapon', weaponClass: 'javelin', icon: 'javelin', baseDamage: 20, affixes: [ax('str', 8, '力量'), ax('lightningDmgPct', 12, '电系伤害')] },
@@ -66,7 +66,7 @@ addSet(
 addSet(
   { id: 'orbiter', name: '奥比特雷纹', reqClass: 'sorceress', color: '#ffe060', bonuses: {
     2: { desc: '电伤 +20%；连锁闪电伤害 +20%', lightningDmgPct: 0.2, skillDmg: { chainLightning: 0.2 } },
-    4: { desc: '范围 +14%，冷却 8%；授予雷暴，雷暴伤害 +40%', aoePct: 0.14, cdrPct: 0.08, skillGrant: { thunderstorm: 1 }, skillDmg: { thunderstorm: 0.4 } },
+    4: { desc: '范围 +14%，冷却 8%；授予雷暴；连锁闪电额外跳跃，雷暴伤害 +40%', aoePct: 0.14, cdrPct: 0.08, skillGrant: { thunderstorm: 1 }, skillDmg: { thunderstorm: 0.4, chainLightning: 0.2 }, power: { skillHits: { chainLightning: 2 } } },
   } },
   [
     { id: 'ob_staff', name: '雷纹法杖', slot: 'weapon', weaponClass: 'caster', icon: 'staff', baseDamage: 16, affixes: [ax('int', 12, '智力'), ax('lightningDmgPct', 14, '电系伤害')] },
@@ -78,7 +78,7 @@ addSet(
 addSet(
   { id: 'frostveil', name: '霜帷法仪', reqClass: 'sorceress', color: '#80d8ff', bonuses: {
     2: { desc: '冰伤 +20%；冰枪伤害 +20%', iceDmgPct: 0.2, skillDmg: { glacial: 0.2 } },
-    4: { desc: '全抗 +10%，技能 +1；授予暴风雪，暴风雪伤害 +45%', allRes: 0.1, skillLevel: 1, skillGrant: { blizzard: 1 }, skillDmg: { blizzard: 0.45 } },
+    4: { desc: '全抗 +10%，技能 +1；授予暴风雪并留下冰面，暴风雪伤害 +45%', allRes: 0.1, skillLevel: 1, skillGrant: { blizzard: 1 }, skillDmg: { blizzard: 0.45 }, power: { skillTrail: { blizzard: true } } },
   } },
   [
     { id: 'fv_orb', name: '霜帷法珠', slot: 'weapon', weaponClass: 'caster', icon: 'orb', baseDamage: 15, affixes: [ax('int', 11, '智力'), ax('iceDmgPct', 14, '冰系伤害')] },
@@ -90,7 +90,7 @@ addSet(
 addSet(
   { id: 'werehide', name: '兽皮图腾', reqClass: 'druid', color: '#8a6030', bonuses: {
     2: { desc: '生命 +80；狼人期间伤害生效更快', hp: 80, skillDmg: { fury: 0.2 } },
-    4: { desc: '物理 +16%，护甲 +20；授予狂怒，狂怒伤害 +40%', physDmgPct: 0.16, armor: 20, skillGrant: { fury: 1 }, skillDmg: { fury: 0.4 } },
+    4: { desc: '物理 +16%，护甲 +20；授予狂怒；变形中可施放元素技能', physDmgPct: 0.16, armor: 20, skillGrant: { fury: 1 }, skillDmg: { fury: 0.4 }, power: { shapecast: true } },
   } },
   [
     { id: 'wh_totem', name: '兽皮图腾', slot: 'weapon', weaponClass: 'caster', icon: 'totem', baseDamage: 18, affixes: [ax('str', 8, '力量'), ax('physDmgPct', 10, '物理伤害')] },
@@ -102,7 +102,7 @@ addSet(
 addSet(
   { id: 'packlord', name: '狼群领主', reqClass: 'druid', color: '#6a8a40', bonuses: {
     2: { desc: '召唤伤害 +16%；飓风伤害 +15%', summonBonus: 0.16, skillDmg: { hurricane: 0.15 } },
-    4: { desc: '技能 +1，生命 +70；授予飓风，飓风伤害 +35%', skillLevel: 1, hp: 70, skillGrant: { hurricane: 1 }, skillDmg: { hurricane: 0.35 } },
+    4: { desc: '技能 +1，生命 +70%；授予飓风；龙卷风命中后续飓风', skillLevel: 1, hp: 70, skillGrant: { hurricane: 1 }, skillDmg: { hurricane: 0.35 }, power: { echoSkill: { tornado: 'hurricane' } } },
   } },
   [
     { id: 'pl_staff', name: '领主图腾', slot: 'weapon', weaponClass: 'caster', icon: 'totem', baseDamage: 17, affixes: [ax('int', 10, '智力')] },
@@ -114,7 +114,7 @@ addSet(
 addSet(
   { id: 'trapsmith', name: '机关师', reqClass: 'assassin', color: '#d4a040', bonuses: {
     2: { desc: '电/火 +12%；闪电守卫伤害 +20%', lightningDmgPct: 0.12, fireDmgPct: 0.12, skillDmg: { lightningSentry: 0.2 } },
-    4: { desc: '冷却 10%，范围 10%；授予死亡守卫，其伤害 +40%', cdrPct: 0.1, aoePct: 0.1, skillGrant: { deathSentry: 1 }, skillDmg: { deathSentry: 0.4 } },
+    4: { desc: '冷却 10%，范围 10%；授予死亡守卫；闪电守卫触发死亡守卫', cdrPct: 0.1, aoePct: 0.1, skillGrant: { deathSentry: 1 }, skillDmg: { deathSentry: 0.4 }, power: { echoSkill: { lightningSentry: 'deathSentry' } } },
   } },
   [
     { id: 'ts_claw', name: '机关拳刃', slot: 'weapon', weaponClass: 'claw', icon: 'claw', baseDamage: 18, affixes: [ax('agi', 10, '敏捷')] },
@@ -126,11 +126,11 @@ addSet(
 addSet(
   { id: 'clawdance', name: '刃舞', reqClass: 'assassin', color: '#c080e0', bonuses: {
     2: { desc: '攻速 +14%；虎击伤害 +20%', attackSpeed: 0.14, skillDmg: { tigerStrike: 0.2 } },
-    4: { desc: '暴击 +6%，物理 +14%；授予凤凰打击，其伤害 +40%', critRate: 0.06, physDmgPct: 0.14, skillGrant: { phoenix: 1 }, skillDmg: { phoenix: 0.4 } },
+    4: { desc: '暴击 +6%，物理 +14%；授予凤凰打击并延长连招窗口，其伤害 +40%', critRate: 0.06, physDmgPct: 0.14, skillGrant: { phoenix: 1 }, skillDmg: { phoenix: 0.4 }, power: { windowBonus: 1.5, skillHits: { phoenix: 1 } } },
   } },
   [
     { id: 'cd_claw', name: '刃舞拳刃', slot: 'weapon', weaponClass: 'claw', icon: 'claw', baseDamage: 21, affixes: [ax('agi', 12, '敏捷'), ax('attackSpeed', 10, '攻击速度')] },
-    { id: 'cd_gloves', name: '刃舞手套', slot: 'gloves', armor: 5, affixes: [ax('critDmg', 18, '暴击伤害')] },
+    { id: 'cd_gloves', name: '刃舞手套', slot: 'gloves', armor: 5, affixes: [ax('critDmg', 9, '暴击伤害')] },
     { id: 'cd_boots', name: '刃舞靴', slot: 'boots', armor: 5, affixes: [ax('agi', 8, '敏捷')] },
     { id: 'cd_ring', name: '刃舞戒指', slot: 'ring1', affixes: [ax('critRate', 6, '暴击率')] },
   ]
@@ -138,7 +138,7 @@ addSet(
 addSet(
   { id: 'hammerdin', name: '圣锤仪仗', reqClass: 'paladin', color: '#f0e8c8', bonuses: {
     2: { desc: '物理近似 +12%；神圣之锤伤害 +25%', physDmgPct: 0.12, skillDmg: { blessedHammer: 0.25 } },
-    4: { desc: '技能 +1，范围 +12%；授予神圣之锤，其伤害 +45%', skillLevel: 1, aoePct: 0.12, skillGrant: { blessedHammer: 1 }, skillDmg: { blessedHammer: 0.45 } },
+    4: { desc: '技能 +1，范围 +12%；授予神圣之锤并环绕自身，其伤害 +45%', skillLevel: 1, aoePct: 0.12, skillGrant: { blessedHammer: 1 }, skillDmg: { blessedHammer: 0.45 }, power: { skillNova: { blessedHammer: true } } },
   } },
   [
     { id: 'hd_scepter', name: '仪仗权杖', slot: 'weapon', weaponClass: 'melee', icon: 'scepter', baseDamage: 22, affixes: [ax('str', 10, '力量')] },
@@ -150,7 +150,7 @@ addSet(
 addSet(
   { id: 'zealot', name: '热诚十字军', reqClass: 'paladin', color: '#d4b050', bonuses: {
     2: { desc: '攻速 +12%；热诚伤害 +20%', attackSpeed: 0.12, skillDmg: { zeal: 0.2 } },
-    4: { desc: '物理 +18%，全抗 +8%；授予牺牲，牺牲伤害 +35%', physDmgPct: 0.18, allRes: 0.08, skillGrant: { sacrifice: 1 }, skillDmg: { sacrifice: 0.35 } },
+    4: { desc: '物理 +18%，全抗 +8%；授予牺牲；热诚额外连击，牺牲伤害 +35%', physDmgPct: 0.18, allRes: 0.08, skillGrant: { sacrifice: 1 }, skillDmg: { sacrifice: 0.35 }, power: { skillHits: { zeal: 2 } } },
   } },
   [
     { id: 'zl_sword', name: '十字军剑', slot: 'weapon', weaponClass: 'melee', icon: 'sword', baseDamage: 24, affixes: [ax('str', 11, '力量'), ax('physDmgPct', 10, '物理伤害')] },
@@ -162,7 +162,7 @@ addSet(
 addSet(
   { id: 'bonearmy', name: '白骨军团', reqClass: 'necro', color: '#c8c8b0', bonuses: {
     2: { desc: '召唤 +20%；骨矛伤害 +20%', summonBonus: 0.2, skillDmg: { boneSpear: 0.2 } },
-    4: { desc: '技能 +1，生命 +60；授予尸爆，尸爆伤害 +40%', skillLevel: 1, hp: 60, skillGrant: { corpseExplosion: 1 }, skillDmg: { corpseExplosion: 0.4 } },
+    4: { desc: '技能 +1，生命 +60%；授予尸爆；骨矛命中后追加尸爆', skillLevel: 1, hp: 60, skillGrant: { corpseExplosion: 1 }, skillDmg: { corpseExplosion: 0.4 }, power: { echoSkill: { boneSpear: 'corpseExplosion' } } },
   } },
   [
     { id: 'ba_wand', name: '军团魔杖', slot: 'weapon', weaponClass: 'caster', icon: 'wand', baseDamage: 14, affixes: [ax('int', 11, '智力')] },
@@ -174,7 +174,7 @@ addSet(
 addSet(
   { id: 'venom', name: '剧毒仪典', reqClass: 'necro', color: '#70e040', bonuses: {
     2: { desc: '毒素 +22%；毒新星伤害 +20%', poisonDmgPct: 0.22, skillDmg: { poisonNova: 0.2 } },
-    4: { desc: '范围 +10%，冷却 8%；授予毒新星，其伤害 +40%', aoePct: 0.1, cdrPct: 0.08, skillGrant: { poisonNova: 1 }, skillDmg: { poisonNova: 0.4 } },
+    4: { desc: '范围 +10%，冷却 8%；授予毒新星并留下毒池，其伤害 +40%', aoePct: 0.1, cdrPct: 0.08, skillGrant: { poisonNova: 1 }, skillDmg: { poisonNova: 0.4 }, power: { skillNova: { poisonNova: true }, skillTrail: { poisonNova: true } } },
   } },
   [
     { id: 'vn_wand', name: '毒仪魔杖', slot: 'weapon', weaponClass: 'caster', icon: 'wand', baseDamage: 15, affixes: [ax('int', 10, '智力'), ax('poisonDmgPct', 12, '毒素伤害')] },
@@ -240,7 +240,7 @@ addSet(
   [
     { id: 'dt_gloves', name: '死神手套', slot: 'gloves', armor: 5, affixes: [ax('lifesteal', 3, '吸血')] },
     { id: 'dt_belt', name: '死神腰带', slot: 'belt', armor: 5, affixes: [ax('hp', 22, '生命')] },
-    { id: 'dt_helm', name: '死神面甲', slot: 'helmet', icon: 'helm', armor: 9, affixes: [ax('critDmg', 16, '暴击伤害')] },
+    { id: 'dt_helm', name: '死神面甲', slot: 'helmet', icon: 'helm', armor: 9, affixes: [ax('critDmg', 8, '暴击伤害')] },
     { id: 'dt_ring', name: '死神戒指', slot: 'ring1', affixes: [ax('physDmgPct', 8, '物理伤害')] },
   ]
 );
@@ -307,28 +307,28 @@ addSet(
 
 UNIQUE_ITEMS.push(
   { id: 'shako', name: '谐角之冠', slot: 'helmet', icon: 'magehat', quality: 'unique', armor: 10, legendaryEffect: '全技能与生命', affixes: [ax('skillLevel', 1, '全技能等级'), ax('hp', 55, '生命'), ax('allRes', 8, '全抗性')] },
-  { id: 'arreats', name: '亚瑞特的面容', slot: 'helmet', icon: 'helm', reqClass: 'berserker', quality: 'unique', armor: 16, legendaryEffect: '战吼更强', affixes: [ax('str', 14, '力量'), ax('hp', 45, '生命'), ax('lifesteal', 4, '吸血')] },
+  { id: 'arreats', name: '亚瑞特的面容', slot: 'helmet', icon: 'helm', reqClass: 'berserker', quality: 'unique', armor: 16, legendaryEffect: '普攻触发旋风斩', morphId: 'proc', morphSkill: 'whirlwind', affixes: [ax('str', 14, '力量'), ax('hp', 45, '生命'), ax('lifesteal', 4, '吸血')] },
   { id: 'andariel', name: '安达利尔的面容', slot: 'helmet', icon: 'helm', quality: 'unique', armor: 11, legendaryEffect: '毒素与攻速', affixes: [ax('poisonDmgPct', 16, '毒素伤害'), ax('attackSpeed', 12, '攻击速度'), ax('allRes', 7, '全抗性')] },
-  { id: 'nightwing', name: '夜翼面纱', slot: 'helmet', icon: 'magehat', reqClass: 'sorceress', quality: 'unique', armor: 6, legendaryEffect: '冰伤大幅提升', affixes: [ax('iceDmgPct', 20, '冰系伤害'), ax('int', 12, '智力')] },
-  { id: 'jalal', name: '加尔的鬃毛', slot: 'helmet', icon: 'pelt', reqClass: 'druid', quality: 'unique', armor: 12, legendaryEffect: '变形与召唤', affixes: [ax('hp', 50, '生命'), ax('summonBonus', 12, '召唤伤害')] },
+  { id: 'nightwing', name: '夜翼面纱', slot: 'helmet', icon: 'magehat', reqClass: 'sorceress', quality: 'unique', armor: 6, legendaryEffect: '冰封球留下冰轨', morphId: 'trail', morphSkill: 'frozenOrb', affixes: [ax('iceDmgPct', 20, '冰系伤害'), ax('int', 12, '智力')] },
+  { id: 'jalal', name: '加尔的鬃毛', slot: 'helmet', icon: 'pelt', reqClass: 'druid', quality: 'unique', armor: 12, legendaryEffect: '变形中仍可释放元素技能', morphId: 'shapecast', morphSkill: 'hurricane', affixes: [ax('hp', 50, '生命'), ax('summonBonus', 12, '召唤伤害')] },
   { id: 'vampiregaze', name: '吸血鬼的凝视', slot: 'helmet', icon: 'helm', quality: 'unique', armor: 13, legendaryEffect: '高吸血', affixes: [ax('lifesteal', 6, '吸血'), ax('damageReduction', 5, '伤害减免'), ax('hp', 30, '生命')] },
   { id: 'crowbill', name: '渡鸦喙斧', slot: 'weapon', weaponClass: 'melee', icon: 'axe', reqClass: 'berserker', quality: 'unique', baseDamage: 34, legendaryEffect: '攻速与暴击', affixes: [ax('attackSpeed', 14, '攻击速度'), ax('critRate', 8, '暴击率'), ax('str', 10, '力量')] },
   { id: 'grief', name: '悔恨', slot: 'weapon', weaponClass: 'melee', icon: 'sword', quality: 'unique', baseDamage: 40, legendaryEffect: '无视部分护甲', affixes: [ax('physDmgPct', 24, '物理伤害'), ax('attackSpeed', 12, '攻击速度'), ax('str', 8, '力量')] },
   { id: 'insight', name: '洞察', slot: 'weapon', weaponClass: 'melee', icon: 'hammer', quality: 'unique', baseDamage: 26, legendaryEffect: '资源回复光环', affixes: [ax('resRegenPct', 16, '资源回复'), ax('hp', 40, '生命')] },
   { id: 'obedience', name: '顺从', slot: 'weapon', weaponClass: 'melee', icon: 'hammer', quality: 'unique', baseDamage: 30, legendaryEffect: '全抗与破甲', affixes: [ax('allRes', 12, '全抗性'), ax('physDmgPct', 14, '物理伤害')] },
-  { id: 'riphook', name: '撕钩', slot: 'weapon', weaponClass: 'bow', icon: 'bow', reqClass: 'amazon', quality: 'unique', baseDamage: 28, legendaryEffect: '减速与穿透', morphId: 'pierce', morphSkill: 'strafe', affixes: [ax('agi', 12, '敏捷'), ax('attackSpeed', 11, '攻击速度')] },
-  { id: 'lycander', name: '莱坎德的瞄准', slot: 'weapon', weaponClass: 'bow', icon: 'bow', reqClass: 'amazon', quality: 'unique', baseDamage: 32, legendaryEffect: '弓技能等级', affixes: [ax('skillLevel', 1, '全技能等级'), ax('physDmgPct', 16, '物理伤害'), ax('agi', 10, '敏捷')] },
+  { id: 'riphook', name: '撕钩', slot: 'weapon', weaponClass: 'bow', icon: 'bow', reqClass: 'amazon', quality: 'unique', baseDamage: 28, legendaryEffect: '扫射穿透', morphId: 'pierce', morphSkill: 'strafe', affixes: [ax('agi', 12, '敏捷'), ax('attackSpeed', 11, '攻击速度')] },
+  { id: 'lycander', name: '莱坎德的瞄准', slot: 'weapon', weaponClass: 'bow', icon: 'bow', reqClass: 'amazon', quality: 'unique', baseDamage: 32, legendaryEffect: '导引箭穿透', morphId: 'pierce', morphSkill: 'guided', affixes: [ax('skillLevel', 1, '全技能等级'), ax('physDmgPct', 16, '物理伤害'), ax('agi', 10, '敏捷')] },
   { id: 'thunderstroke', name: '雷击', slot: 'weapon', weaponClass: 'javelin', icon: 'javelin', reqClass: 'amazon', quality: 'unique', baseDamage: 27, legendaryEffect: '电枪连锁', morphId: 'chain', morphSkill: 'lightningFury', affixes: [ax('lightningDmgPct', 18, '电系伤害'), ax('str', 8, '力量')] },
-  { id: 'deathsweb', name: '死亡之网', slot: 'weapon', weaponClass: 'caster', icon: 'wand', reqClass: 'necro', quality: 'unique', baseDamage: 18, legendaryEffect: '毒素与降抗', affixes: [ax('poisonDmgPct', 20, '毒素伤害'), ax('int', 14, '智力')] },
-  { id: 'boneshade', name: '骨影', slot: 'weapon', weaponClass: 'caster', icon: 'wand', reqClass: 'necro', quality: 'unique', baseDamage: 17, legendaryEffect: '骨矛更强', affixes: [ax('int', 12, '智力'), ax('skillLevel', 1, '全技能等级')] },
-  { id: 'heartot', name: '橡树之心', slot: 'weapon', weaponClass: 'caster', icon: 'totem', reqClass: 'druid', quality: 'unique', baseDamage: 21, legendaryEffect: '元素与召唤', affixes: [ax('int', 12, '智力'), ax('summonBonus', 12, '召唤伤害'), ax('physDmgPct', 10, '物理伤害')] },
+  { id: 'deathsweb', name: '死亡之网', slot: 'weapon', weaponClass: 'caster', icon: 'wand', reqClass: 'necro', quality: 'unique', baseDamage: 18, legendaryEffect: '毒新星环状扩大', morphId: 'nova', morphSkill: 'poisonNova', affixes: [ax('poisonDmgPct', 20, '毒素伤害'), ax('int', 14, '智力')] },
+  { id: 'boneshade', name: '骨影', slot: 'weapon', weaponClass: 'caster', icon: 'wand', reqClass: 'necro', quality: 'unique', baseDamage: 17, legendaryEffect: '骨矛穿透', morphId: 'pierce', morphSkill: 'boneSpear', affixes: [ax('int', 12, '智力'), ax('skillLevel', 1, '全技能等级')] },
+  { id: 'heartot', name: '橡树之心', slot: 'weapon', weaponClass: 'caster', icon: 'totem', reqClass: 'druid', quality: 'unique', baseDamage: 21, legendaryEffect: '飓风留下风暴轨迹', morphId: 'trail', morphSkill: 'hurricane', affixes: [ax('int', 12, '智力'), ax('summonBonus', 12, '召唤伤害'), ax('physDmgPct', 10, '物理伤害')] },
   { id: 'oculus', name: '核瞳', slot: 'weapon', weaponClass: 'caster', icon: 'orb', reqClass: 'sorceress', quality: 'unique', baseDamage: 19, legendaryEffect: '全技能与传送感（攻速）', affixes: [ax('skillLevel', 1, '全技能等级'), ax('int', 16, '智力'), ax('allRes', 8, '全抗性')] },
-  { id: 'deathsfathom', name: '死亡深度', slot: 'weapon', weaponClass: 'caster', icon: 'orb', reqClass: 'sorceress', quality: 'unique', baseDamage: 18, legendaryEffect: '冰伤极高', affixes: [ax('iceDmgPct', 24, '冰系伤害'), ax('int', 12, '智力')] },
+  { id: 'deathsfathom', name: '死亡深度', slot: 'weapon', weaponClass: 'caster', icon: 'orb', reqClass: 'sorceress', quality: 'unique', baseDamage: 18, legendaryEffect: '冰封球新星化', morphId: 'nova', morphSkill: 'frozenOrb', affixes: [ax('iceDmgPct', 24, '冰系伤害'), ax('int', 12, '智力')] },
   { id: 'wizspike', name: '巫师之刺', slot: 'weapon', weaponClass: 'caster', icon: 'staff', reqClass: 'sorceress', quality: 'unique', baseDamage: 14, legendaryEffect: '极高回复与全抗', affixes: [ax('resRegenPct', 18, '资源回复'), ax('allRes', 12, '全抗性'), ax('int', 10, '智力')] },
-  { id: 'stormlash', name: '风暴之笞', slot: 'weapon', weaponClass: 'melee', icon: 'scepter', reqClass: 'paladin', quality: 'unique', baseDamage: 28, legendaryEffect: '闪电连锁', morphId: 'chain', morphSkill: 'fistOfHeavens', affixes: [ax('lightningDmgPct', 16, '电系伤害'), ax('str', 10, '力量')] },
-  { id: 'grizwold', name: '格里斯沃尔德之刃', slot: 'weapon', weaponClass: 'melee', icon: 'sword', reqClass: 'paladin', quality: 'unique', baseDamage: 32, legendaryEffect: '光环增强', affixes: [ax('str', 12, '力量'), ax('skillLevel', 1, '全技能等级')] },
-  { id: 'natalya', name: '娜塔亚的印记', slot: 'weapon', weaponClass: 'claw', icon: 'claw', reqClass: 'assassin', quality: 'unique', baseDamage: 30, legendaryEffect: '陷阱与武学', affixes: [ax('agi', 14, '敏捷'), ax('lightningDmgPct', 12, '电系伤害'), ax('attackSpeed', 10, '攻击速度')] },
-  { id: 'firelizards', name: '火蜥蜴之爪', slot: 'weapon', weaponClass: 'claw', icon: 'claw', reqClass: 'assassin', quality: 'unique', baseDamage: 26, legendaryEffect: '火陷阱更猛', affixes: [ax('fireDmgPct', 18, '火系伤害'), ax('agi', 10, '敏捷')] },
+  { id: 'stormlash', name: '风暴之笞', slot: 'weapon', weaponClass: 'melee', icon: 'scepter', reqClass: 'paladin', quality: 'unique', baseDamage: 28, legendaryEffect: '天堂之拳连锁', morphId: 'chain', morphSkill: 'fistOfHeavens', affixes: [ax('lightningDmgPct', 16, '电系伤害'), ax('str', 10, '力量')] },
+  { id: 'grizwold', name: '格里斯沃尔德之刃', slot: 'weapon', weaponClass: 'melee', icon: 'sword', reqClass: 'paladin', quality: 'unique', baseDamage: 32, legendaryEffect: '延长热诚连招窗口', morphId: 'window', morphSkill: 'zeal', affixes: [ax('str', 12, '力量'), ax('skillLevel', 1, '全技能等级')] },
+  { id: 'natalya', name: '娜塔亚的印记', slot: 'weapon', weaponClass: 'claw', icon: 'claw', reqClass: 'assassin', quality: 'unique', baseDamage: 30, legendaryEffect: '闪电守卫连锁', morphId: 'chain', morphSkill: 'lightningSentry', affixes: [ax('agi', 14, '敏捷'), ax('lightningDmgPct', 12, '电系伤害'), ax('attackSpeed', 10, '攻击速度')] },
+  { id: 'firelizards', name: '火蜥蜴之爪', slot: 'weapon', weaponClass: 'claw', icon: 'claw', reqClass: 'assassin', quality: 'unique', baseDamage: 26, legendaryEffect: '火焰爆弹新星化', morphId: 'nova', morphSkill: 'fireBlast', affixes: [ax('fireDmgPct', 18, '火系伤害'), ax('agi', 10, '敏捷')] },
   { id: 'skullders', name: '斯考尔德的艾恩', slot: 'chest', quality: 'unique', armor: 20, legendaryEffect: '击杀获得更多经验感（精英伤）', affixes: [ax('eliteDmgPct', 16, '对精英伤害'), ax('hp', 40, '生命'), ax('allRes', 8, '全抗性')] },
   { id: 'tyrael', name: '泰瑞尔之力', slot: 'chest', quality: 'unique', armor: 28, legendaryEffect: '无法冻结，全抗', affixes: [ax('allRes', 14, '全抗性'), ax('hp', 60, '生命'), ax('str', 10, '力量')] },
   { id: 'shaftstop', name: '箭止', slot: 'chest', quality: 'unique', armor: 24, legendaryEffect: '高减伤', affixes: [ax('damageReduction', 7, '伤害减免'), ax('hp', 50, '生命')] },
@@ -361,18 +361,18 @@ UNIQUE_ITEMS.push(
 );
 
 LEGENDARY_ITEMS.push(
-  { id: 'infinity', name: '无限', slot: 'weapon', weaponClass: 'melee', icon: 'hammer', quality: 'legendary', baseDamage: 33, legendaryEffect: '降敌抗（全抗穿透）', affixes: [ax('lightningDmgPct', 16, '电系伤害'), ax('str', 10, '力量')] },
+  { id: 'infinity', name: '无限', slot: 'weapon', weaponClass: 'melee', icon: 'hammer', quality: 'legendary', baseDamage: 33, legendaryEffect: '降低敌人抗性 15%', itemPower: { enemyResDown: 0.15 }, affixes: [ax('lightningDmgPct', 16, '电系伤害'), ax('str', 10, '力量')] },
   { id: 'fortitude', name: '刚毅', slot: 'chest', quality: 'legendary', armor: 26, legendaryEffect: '高生命与物伤', affixes: [ax('hp', 80, '生命'), ax('physDmgPct', 14, '物理伤害')] },
   { id: 'enigma', name: '谜团', slot: 'chest', icon: 'robe', quality: 'legendary', armor: 14, legendaryEffect: '技能与移速感（攻速）', affixes: [ax('skillLevel', 1, '全技能等级'), ax('attackSpeed', 10, '攻击速度'), ax('str', 8, '力量')] },
   { id: 'chains_honor', name: '荣耀之链', slot: 'chest', quality: 'legendary', armor: 21, legendaryEffect: '全抗与物伤', affixes: [ax('allRes', 12, '全抗性'), ax('physDmgPct', 12, '物理伤害'), ax('hp', 45, '生命')] },
   { id: 'phoenix_armor', name: '凤凰甲', slot: 'chest', quality: 'legendary', armor: 20, legendaryEffect: '火伤与生命', affixes: [ax('fireDmgPct', 16, '火系伤害'), ax('hp', 50, '生命')] },
-  { id: 'lastwish', name: '最后的愿望', slot: 'weapon', weaponClass: 'melee', icon: 'sword', quality: 'legendary', baseDamage: 38, legendaryEffect: '击中爆裂', morphId: 'nova', morphSkill: 'smash', affixes: [ax('physDmgPct', 20, '物理伤害'), ax('hp', 30, '生命')] },
+  { id: 'lastwish', name: '最后的愿望', slot: 'weapon', weaponClass: 'melee', icon: 'sword', reqClass: 'berserker', quality: 'legendary', baseDamage: 38, legendaryEffect: '猛击环状爆裂', morphId: 'nova', morphSkill: 'smash', affixes: [ax('physDmgPct', 20, '物理伤害'), ax('hp', 30, '生命')] },
   { id: 'beast', name: '野兽', slot: 'weapon', weaponClass: 'melee', icon: 'axe', quality: 'legendary', baseDamage: 35, legendaryEffect: '狂乱光环感（攻速）', affixes: [ax('attackSpeed', 16, '攻击速度'), ax('str', 14, '力量')] },
   { id: 'doom', name: '末日', slot: 'weapon', weaponClass: 'melee', icon: 'axe', quality: 'legendary', baseDamage: 36, legendaryEffect: '冰冻与冰伤', affixes: [ax('iceDmgPct', 16, '冰系伤害'), ax('physDmgPct', 12, '物理伤害')] },
   { id: 'calltoarms', name: '战争召唤', slot: 'weapon', weaponClass: 'melee', icon: 'axe', reqClass: 'berserker', quality: 'legendary', baseDamage: 30, legendaryEffect: '战吼技能', affixes: [ax('skillLevel', 1, '全技能等级'), ax('hp', 40, '生命')] },
-  { id: 'faith', name: '信念', slot: 'weapon', weaponClass: 'bow', icon: 'bow', reqClass: 'amazon', quality: 'legendary', baseDamage: 34, legendaryEffect: '狂热光环感', affixes: [ax('attackSpeed', 14, '攻击速度'), ax('agi', 12, '敏捷'), ax('physDmgPct', 14, '物理伤害')] },
+  { id: 'faith', name: '信念', slot: 'weapon', weaponClass: 'bow', icon: 'bow', reqClass: 'amazon', quality: 'legendary', baseDamage: 34, legendaryEffect: '多重射击再分裂', morphId: 'split', morphSkill: 'multiShot', affixes: [ax('attackSpeed', 14, '攻击速度'), ax('agi', 12, '敏捷'), ax('physDmgPct', 14, '物理伤害')] },
   { id: 'wrath_bow', name: '愤怒之弓', slot: 'weapon', weaponClass: 'bow', icon: 'bow', reqClass: 'amazon', quality: 'legendary', baseDamage: 31, legendaryEffect: '对恶魔增伤', affixes: [ax('eliteDmgPct', 18, '对精英伤害'), ax('lightningDmgPct', 12, '电系伤害')] },
-  { id: 'phoenix_orb', name: '凤凰法珠', slot: 'weapon', weaponClass: 'caster', icon: 'orb', reqClass: 'sorceress', quality: 'legendary', baseDamage: 20, legendaryEffect: '火雨与减抗', morphId: 'nova', morphSkill: 'meteor', affixes: [ax('fireDmgPct', 18, '火系伤害'), ax('int', 14, '智力')] },
+  { id: 'phoenix_orb', name: '凤凰法珠', slot: 'weapon', weaponClass: 'caster', icon: 'orb', reqClass: 'sorceress', quality: 'legendary', baseDamage: 20, legendaryEffect: '陨石环状砸落', morphId: 'nova', morphSkill: 'meteor', affixes: [ax('fireDmgPct', 18, '火系伤害'), ax('int', 14, '智力')] },
   { id: 'crescent', name: '新月', slot: 'weapon', weaponClass: 'caster', icon: 'staff', quality: 'legendary', baseDamage: 17, legendaryEffect: '魔法箭转化感', affixes: [ax('int', 12, '智力'), ax('lifesteal', 4, '吸血')] },
   { id: 'spirit_keeper', name: '灵魂守护', slot: 'helmet', icon: 'pelt', reqClass: 'druid', quality: 'legendary', armor: 11, legendaryEffect: '元素抗与召唤', affixes: [ax('allRes', 10, '全抗性'), ax('summonBonus', 10, '召唤伤害')] },
   { id: 'runemaster', name: '符文大师', slot: 'helmet', icon: 'helm', quality: 'legendary', armor: 14, legendaryEffect: '全抗随时间（全抗）', affixes: [ax('allRes', 14, '全抗性'), ax('armor', 12, '护甲')] },
@@ -387,8 +387,55 @@ LEGENDARY_ITEMS.push(
   { id: 'seraph', name: '炽天使之翼', slot: 'necklace', reqClass: 'paladin', quality: 'legendary', legendaryEffect: '光环与生命', affixes: [ax('skillLevel', 1, '全技能等级'), ax('hp', 35, '生命')] },
   { id: 'wisp', name: '灯灵投射者', slot: 'ring1', quality: 'legendary', legendaryEffect: '闪电吸收与电伤', affixes: [ax('lightningDmgPct', 12, '电系伤害'), ax('allRes', 6, '全抗性')] },
   { id: 'nature_peace', name: '自然和平', slot: 'ring1', reqClass: 'druid', quality: 'legendary', legendaryEffect: '阻止怪物回复', affixes: [ax('hp', 30, '生命'), ax('poisonDmgPct', 10, '毒素伤害')] },
-  { id: 'darkforce', name: '黑暗力量', slot: 'ring1', reqClass: 'necro', quality: 'legendary', legendaryEffect: '骨魂增强', affixes: [ax('int', 12, '智力'), ax('skillLevel', 1, '全技能等级')] },
+  { id: 'darkforce', name: '黑暗力量', slot: 'ring1', reqClass: 'necro', quality: 'legendary', legendaryEffect: '骨魂连锁', morphId: 'chain', morphSkill: 'boneSpirit', affixes: [ax('int', 12, '智力'), ax('skillLevel', 1, '全技能等级')] },
   { id: 'stormshield_lg', name: '王者盾', slot: 'offhand', offhandClass: 'shield', icon: 'shield', quality: 'legendary', armor: 20, legendaryEffect: '格挡减伤', affixes: [ax('damageReduction', 6, '伤害减免'), ax('allRes', 9, '全抗性')] },
   { id: 'spirit_shield', name: '精神盾', slot: 'offhand', offhandClass: 'shield', icon: 'shield', quality: 'legendary', armor: 12, legendaryEffect: '快速施法感（攻速）', affixes: [ax('attackSpeed', 12, '攻击速度'), ax('resRegenPct', 10, '资源回复'), ax('skillLevel', 1, '全技能等级')] },
-  { id: 'exile', name: '流放', slot: 'offhand', offhandClass: 'shield', icon: 'shield', reqClass: 'paladin', quality: 'legendary', armor: 17, legendaryEffect: '生命光环感', affixes: [ax('hp', 50, '生命'), ax('lifesteal', 4, '吸血')] }
+  { id: 'exile', name: '流放', slot: 'offhand', offhandClass: 'shield', icon: 'shield', reqClass: 'paladin', quality: 'legendary', armor: 17, legendaryEffect: '生命光环感', affixes: [ax('hp', 50, '生命'), ax('lifesteal', 4, '吸血')] },
+  { id: 'rorg', name: '皇家华戒', slot: 'ring1', quality: 'legendary', legendaryEffect: '套装效果所需件数 -1（最少仍需 2 件）', itemPower: { setReqReduce: 1 }, affixes: [ax('hp', 40, '生命'), ax('allRes', 10, '全抗性'), ax('str', 8, '力量')] },
+  { id: 'unity_ring', name: '合一之戒', slot: 'ring1', quality: 'legendary', legendaryEffect: '减伤与生命', affixes: [ax('damageReduction', 6, '伤害减免'), ax('hp', 50, '生命')] }
 );
+
+(function applyThreePieceSetBonuses() {
+  const three = {
+    immortal: { desc: '授予旋风斩；旋风伤害再 +20%，范围 +8%', skillGrant: { whirlwind: 1 }, skillDmg: { whirlwind: 0.2 }, aoePct: 0.08 },
+    wreckage: { desc: '授予狂乱，狂乱伤害 +20%', skillGrant: { frenzy: 1 }, skillDmg: { frenzy: 0.2 } },
+    sky: { desc: '授予扫射，扫射伤害 +20%', skillGrant: { strafe: 1 }, skillDmg: { strafe: 0.2 } },
+    javelin: { desc: '授予闪电之怒，其伤害 +18%', skillGrant: { lightningFury: 1 }, skillDmg: { lightningFury: 0.18 } },
+    orbiter: { desc: '授予雷暴；连锁闪电伤害 +15%', skillGrant: { thunderstorm: 1 }, skillDmg: { chainLightning: 0.15 } },
+    frostveil: { desc: '授予暴风雪，暴风雪伤害 +18%', skillGrant: { blizzard: 1 }, skillDmg: { blizzard: 0.18 } },
+    werehide: { desc: '授予狂怒，狂怒伤害 +18%', skillGrant: { fury: 1 }, skillDmg: { fury: 0.18 } },
+    packlord: { desc: '授予飓风，飓风伤害 +18%', skillGrant: { hurricane: 1 }, skillDmg: { hurricane: 0.18 } },
+    trapsmith: { desc: '授予死亡守卫，其伤害 +18%', skillGrant: { deathSentry: 1 }, skillDmg: { deathSentry: 0.18 } },
+    clawdance: { desc: '授予凤凰打击，其伤害 +18%', skillGrant: { phoenix: 1 }, skillDmg: { phoenix: 0.18 } },
+    hammerdin: { desc: '授予神圣之锤，其伤害 +20%', skillGrant: { blessedHammer: 1 }, skillDmg: { blessedHammer: 0.2 } },
+    zealot: { desc: '授予牺牲，热诚伤害 +12%', skillGrant: { sacrifice: 1 }, skillDmg: { zeal: 0.12 } },
+    bonearmy: { desc: '授予尸爆，尸爆伤害 +18%', skillGrant: { corpseExplosion: 1 }, skillDmg: { corpseExplosion: 0.18 } },
+    venom: { desc: '授予毒新星，其伤害 +18%', skillGrant: { poisonNova: 1 }, skillDmg: { poisonNova: 0.18 } },
+    sigons: { desc: '授予旋风斩，旋风伤害 +15%', skillGrant: { whirlwind: 1 }, skillDmg: { whirlwind: 0.15 } },
+    talrasha: { desc: '授予陨石，陨石伤害 +18%', skillGrant: { meteor: 1 }, skillDmg: { meteor: 0.18 } },
+    glory: { desc: '授予导引箭，多重射击伤害 +12%', skillGrant: { guided: 1 }, skillDmg: { multiShot: 0.12 } },
+    windwalk: { desc: '授予飓风，龙卷风伤害 +12%', skillGrant: { hurricane: 1 }, skillDmg: { tornado: 0.12 } },
+    shadow: { desc: '授予刀刃之井，其伤害 +18%', skillGrant: { bladeFury: 1 }, skillDmg: { bladeFury: 0.18 } },
+    hallowed: { desc: '授予天堂之拳，其伤害 +18%', skillGrant: { fistOfHeavens: 1 }, skillDmg: { fistOfHeavens: 0.18 } },
+    trangeir: { desc: '授予骨矛，骨矛伤害 +18%', skillGrant: { boneSpear: 1 }, skillDmg: { boneSpear: 0.18 } },
+    cathan: { desc: '授予火球，火球伤害 +12%', skillGrant: { fireball: 1 }, skillDmg: { fireball: 0.12 } },
+    arctic: { desc: '授予冰霜新星，其伤害 +12%', skillGrant: { frostNova: 1 }, skillDmg: { frostNova: 0.12 } },
+    infernal: { desc: '授予陨石，火墙伤害 +12%', skillGrant: { meteor: 1 }, skillDmg: { fireWall: 0.12 } },
+    angelic: { desc: '生命 +35，全抗 +5%', hp: 35, allRes: 0.05 },
+    deaths: { desc: '吸血 +2%，物理 +8%', lifesteal: 0.02, physDmgPct: 0.08 },
+    hsarus: { desc: '护甲 +20，生命 +30', armor: 20, hp: 30 },
+    vidala: { desc: '攻速 +6%，攻击距离 +6%', attackSpeed: 0.06, attackRange: 0.06 },
+    disciple: { desc: '冷却缩减 +5%，资源回复 +6%', cdrPct: 0.05, resRegenPct: 0.06 },
+    guardian: { desc: '生命 +40，减伤 3%', hp: 40, damageReduction: 0.03 },
+    wanderer: { desc: '对精英 +6%，生命 +25', eliteDmgPct: 0.06, hp: 25 },
+  };
+  for (const [id, bonus] of Object.entries(three)) {
+    if (SETS[id]) SETS[id].bonuses[3] = bonus;
+  }
+  for (const set of Object.values(SETS)) {
+    if (set?.bonuses && !set.bonuses[3] && set.bonuses[2] && set.bonuses[4]) {
+      set.bonuses[3] = { desc: '生命 +36，护甲 +10', hp: 36, armor: 10 };
+    }
+  }
+})();
+

@@ -199,7 +199,7 @@ function spawnPack(map) {
     combat.spawnTimer = 1.15;
     return;
   }
-  if (isChapterBossReady(gameState, map) && gameState.bossesKilled?.[map.bossId]) {
+  if (isChapterBossReady(gameState, map, hero) && campaignOf(gameState, hero).bossesKilled?.[map.bossId]) {
     combat.bossPity = pity + 1;
   }
   const min = Math.max(3, (map.packMin || 2) + 2);
@@ -585,15 +585,16 @@ function updateCombat(dt) {
       tickMonsterAttacks(dt, hero, hx, stats);
       return;
     }
-    const proc = Object.values(hero.equipment || {}).find(i => i?.morphId === 'proc');
+    const proc = stats.onHitCast || (stats.procEquipped ? { skillId: null, chance: 0.2, coeff: 0.5 } : null);
     const still = combat.target;
-    if (proc && still && still.hp > 0 && Math.random() < 0.12 && !combat.channel) {
-      const sid = proc.morphSkill || hero.equippedSkills[0];
+    if (proc && still && still.hp > 0 && Math.random() < (proc.chance || 0.2) && !combat.channel) {
+      const sid = proc.skillId || hero.equippedSkills.find(id => SKILLS[hero.charId]?.[id]?.damageMult) || hero.equippedSkills[0];
       const skill = SKILLS[hero.charId]?.[sid];
       if (skill?.damageMult) {
         const r = calcDamage(hero, still, skill);
-        still.hp -= Math.floor(r.damage * 0.5);
-        window.isoField?.addFx('dmg', still.iso.x, still.iso.y, `击中施放 ${Math.floor(r.damage * 0.5)}`, '#c7a24a');
+        const dmg = Math.floor(r.damage * (proc.coeff || 0.5));
+        still.hp -= dmg;
+        window.isoField?.addFx('dmg', still.iso.x, still.iso.y, `击中施放 ${dmg}`, '#c7a24a');
         if (still.hp <= 0) onMonsterKill(hero, still);
       }
     }
@@ -689,7 +690,12 @@ function applySkillHits(hero, skill, primary, stats, opts = {}) {
   for (const m of targets) {
     if (!m || m.hp <= 0) continue;
     const result = calcDamage(hero, m, skill);
-    const dmg = skill.aoe && primary && m !== primary ? Math.floor(result.damage * 0.75) : result.damage;
+    if (result.miss) {
+      if (m.iso) window.isoField?.addFx('dmg', m.iso.x, m.iso.y, '未中', '#9a9080');
+      continue;
+    }
+    let dmg = skill.aoe && primary && m !== primary ? Math.floor(result.damage * 0.75) : result.damage;
+    if (opts.coeff) dmg = Math.max(1, Math.floor(dmg * opts.coeff));
     m.hp -= dmg;
     if (m.curse?.leech) {
       hero.currentHp = Math.min(stats.maxHp, hero.currentHp + dmg * m.curse.leech);
@@ -734,7 +740,17 @@ function applySkillHits(hero, skill, primary, stats, opts = {}) {
   if (stats.lifesteal > 0) {
     hero.currentHp = Math.min(stats.maxHp, hero.currentHp + 12 * stats.lifesteal);
   }
+  if (skill.id === 'whirlwind' && stats.wwLifesteal) {
+    hero.currentHp = Math.min(stats.maxHp, hero.currentHp + stats.maxHp * stats.wwLifesteal * Math.max(1, targets.length) * 0.12);
+  }
   for (const m of killed) onMonsterKill(hero, m);
+  if (!opts.echo && stats.echoSkill?.[skill.id]) {
+    const echoId = stats.echoSkill[skill.id];
+    const echo = SKILLS[hero.charId]?.[echoId];
+    if (echo && echo.id !== skill.id) {
+      applySkillHits(hero, echo, primary, stats, { silent: true, echo: true, coeff: 0.55 });
+    }
+  }
 }
 
 function skillHasTarget(hero, skill, stats, pack, hx, monster) {
@@ -766,7 +782,7 @@ function autoCastSkillIds(hero, stats) {
     if (skill.tree === 'warcry') return false;
     if (!skillWeaponReady(hero, skill).ok) return false;
     if ((skill.tags || []).includes('control') && (skill.damageMult || 0) < 0.9 && !skill.curse) return false;
-    return (skill.damageMult || 0) >= 0.8 || !!skill.channel || !!skill.duration || !!skill.plantSummon || !!skill.curse;
+    return typeof isCombatCastSkill === 'function' ? isCombatCastSkill(skill) : ((skill.damageMult || 0) > 0);
   });
 }
 
@@ -780,6 +796,10 @@ function listReadyCasts(hero, monster, stats) {
     if (!skill) continue;
     combat.skillCooldowns[skillId] = combat.skillCooldowns[skillId] || 0;
     if (combat.skillCooldowns[skillId] > 0) continue;
+    if (skill.tree === 'elem') {
+      const shaped = Object.values(combat.buffs || {}).some(b => b.kind === 'shape' && (b.t || 0) > 0);
+      if (shaped && !stats.shapecast) continue;
+    }
     const cost = skillResCost(hero, skill, stats);
     if (cost > 0 && (hero.currentRes || 0) < cost) continue;
     if (!skillHasTarget(hero, skill, stats, pack, hx, monster)) continue;
@@ -847,7 +867,10 @@ function tryCastOneSkill(hero, monster, stats) {
   } else {
     applySkillHits(hero, skill, monster, stats);
     if (skill.duration) {
-      const origin = monster?.iso || window.isoField?.hero;
+      const follow = skill.id === 'hurricane' || skill.id === 'thunderstorm';
+      const origin = follow
+        ? (window.isoField?.hero || monster?.iso)
+        : (monster?.iso || window.isoField?.hero);
       if (origin) {
         combat.zones = combat.zones || [];
         combat.zones.push({
@@ -858,6 +881,7 @@ function tryCastOneSkill(hero, monster, stats) {
           t: skill.duration,
           tick: 0,
           interval: skill.lingerTick || 0.45,
+          followHero: follow,
         });
       }
     }
@@ -865,11 +889,12 @@ function tryCastOneSkill(hero, monster, stats) {
   combat.spenderLock = false;
   combat.lastSkillId = skillId;
   if ((skill.tags || []).includes('opener')) {
-    combat.comboWindow = Math.max(combat.comboWindow || 0, 6);
+    combat.comboWindow = Math.max(combat.comboWindow || 0, 6 + (stats.windowBonus || 0));
     combat.lastOpener = skillId;
   }
   if (cost > 0) {
-    addLog({ type: 'skill', text: `${skill.name} 怒气 ${Math.floor(before)} → ${Math.floor(hero.currentRes || 0)}` });
+    const resName = stats.resName || '资源';
+    addLog({ type: 'skill', text: `${skill.name} ${resName} ${Math.floor(before)} → ${Math.floor(hero.currentRes || 0)}` });
   }
   return true;
 }
@@ -944,6 +969,10 @@ function tickSkillZones(dt, hero, stats) {
       z.tick += dt;
       const skill = SKILLS[hero.charId]?.[z.skillId];
       if (!skill || hero.isDead || z.t <= 0) return false;
+      if (z.followHero && window.isoField?.hero) {
+        z.x = window.isoField.hero.x;
+        z.y = window.isoField.hero.y;
+      }
       if (z.tick >= (z.interval || 0.45)) {
         z.tick -= z.interval || 0.45;
         const origin = { x: z.x, y: z.y };
@@ -991,6 +1020,10 @@ function tickSkillTurrets(dt, hero, stats) {
 
 function performHeroAttack(hero, monster, stats) {
   const result = calcDamage(hero, monster);
+  if (result.miss) {
+    window.isoField?.addFx('dmg', monster.iso.x, monster.iso.y, '未中', '#9a9080');
+    return;
+  }
   monster.hp -= result.damage;
   window.isoField?.playSkill(
     { tags: ['melee'], element: 'physical', id: 'auto' },
@@ -1104,6 +1137,9 @@ function onMonsterKill(hero, monster) {
   hero.kills = (hero.kills || 0) + 1;
   gameState.mapKills = gameState.mapKills || {};
   const stats = calcHeroStats(hero);
+  if (stats.killReset && (monster.kind === 'elite' || monster.kind === 'rare' || monster.kind === 'rareBoss' || monster.kind === 'hidden' || monster.isBoss)) {
+    combat.skillCooldowns[stats.killReset] = 0;
+  }
   if (stats.resOnKill && !combat.channel && !combat.spenderLock) {
     gainResource(hero, stats, stats.resOnKill);
   }
@@ -1136,10 +1172,11 @@ function onMonsterKill(hero, monster) {
         }
       }
     } else {
+      const camp = campaignOf(gameState, hero);
       const need = mapProgressNeed(map);
-      const have = gameState.mapKills[hero.currentMap] || 0;
-      if (have < need) gameState.mapKills[hero.currentMap] = have + 1;
-      combat.killCount = gameState.mapKills[hero.currentMap] || 0;
+      const have = camp.mapKills[hero.currentMap] || 0;
+      if (have < need) camp.mapKills[hero.currentMap] = have + 1;
+      combat.killCount = camp.mapKills[hero.currentMap] || 0;
     }
     if (maybeUnlockTown(gameState)) {
       addLog({ type: 'info', text: '血沼已肃清，荒村据点开放。可从营地进入。' });
@@ -1172,7 +1209,7 @@ function onMonsterKill(hero, monster) {
     } else if (reward?.unlockedDiff) {
       addLog({ type: 'boss', text: `解锁${reward.unlockedDiff.name}难度` });
     }
-    combat.killCount = gameState.mapKills[hero.currentMap] || 0;
+    combat.killCount = campaignOf(gameState, hero).mapKills[hero.currentMap] || 0;
   }
 
   const jumped = tryAutoNextMap(gameState, hero);
@@ -1182,7 +1219,7 @@ function onMonsterKill(hero, monster) {
     combat.target = null;
     combat.bossPity = 0;
     combat.spawnTimer = 0.25;
-    combat.killCount = gameState.mapKills[hero.currentMap] || 0;
+    combat.killCount = campaignOf(gameState, hero).mapKills[hero.currentMap] || 0;
     combat.lastCorpse = { x: monster.iso?.x || 7, y: monster.iso?.y || 4 };
     return;
   }
@@ -1211,9 +1248,9 @@ function handleDeath(hero) {
   const map = getCurrentMap(hero, gameState);
   if (fightingBoss && map) {
     const dec = 10;
-    gameState.mapKills = gameState.mapKills || {};
-    gameState.mapKills[map.id] = Math.max(0, (gameState.mapKills[map.id] || 0) - dec);
-    combat.killCount = gameState.mapKills[map.id];
+    const camp = campaignOf(gameState, hero);
+    camp.mapKills[map.id] = Math.max(0, (camp.mapKills[map.id] || 0) - dec);
+    combat.killCount = camp.mapKills[map.id];
     addLog({ type: 'death', text: `倒下，未能击败首领，进度 -${dec}，损失金币 ${loss}，8 秒后复活` });
   } else {
     addLog({ type: 'death', text: `倒下，损失金币 ${loss}，8 秒后复活` });

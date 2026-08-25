@@ -145,6 +145,8 @@ function createNewGame() {
     diffCleared: {},
     bossesEver: {},
     diffProgressV1: true,
+    heroMapProgressV1: true,
+    heroMapProgressV2: true,
     town: createTownState(),
   };
   ensureDiffProgress(state);
@@ -172,6 +174,8 @@ function createHero(charId, level = 1, equipment = {}) {
     skillEnabled: {},
     equipment: {},
     currentMap: 'wasteland',
+    holdMap: false,
+    diffProgress: {},
     currentHp: null,
     kills: 0, combo: 0, deaths: 0,
     isDead: false, respawnTimer: 0,
@@ -211,9 +215,13 @@ function ensureDefaultSkills(hero) {
 function grantedSkillIds(hero) {
   const ids = new Set();
   if (typeof getSetStatus !== 'function') return ids;
+  const reduce = typeof equipmentSetReduce === 'function' ? equipmentSetReduce(hero.equipment || {}) : 0;
   for (const s of getSetStatus(hero.equipment || {})) {
-    for (const [n, bonus] of Object.entries(s.def.bonuses || {})) {
-      if (s.count >= parseInt(n, 10) && bonus.skillGrant) {
+    for (const [n, bonus] of setBonusEntries(s.def)) {
+      const on = typeof setBonusActive === 'function'
+        ? setBonusActive(s.count, n, reduce)
+        : s.count >= parseInt(n, 10);
+      if (on && bonus.skillGrant) {
         Object.keys(bonus.skillGrant).forEach(id => ids.add(id));
       }
     }
@@ -287,15 +295,19 @@ function skillLearnCost(hero, skillId) {
   const req = skill.reqLevel || 1;
   const unlock = cur === 0;
   const gold = Math.floor(16 * next * next * (0.5 + req * 0.055) * (unlock ? 1.65 : 1));
+  const scale = (0.7 + req * 0.045) * next;
   let crystal = 0;
   let metal = 0;
   let cloth = 0;
-  if (unlock && req >= 12) crystal += 1;
-  if (unlock && req >= 18) crystal += 1;
-  if (next >= 4) crystal += Math.floor((next - 2) / 3);
-  if (req >= 24 && next >= 3) crystal += 1;
-  if (next >= 6) metal += Math.ceil((next - 5) / 2);
-  if (next >= 8) cloth += Math.ceil((next - 7) / 2);
+  if (next >= 2) metal = Math.max(1, Math.ceil(2.4 * scale));
+  if (next >= 3) cloth = Math.max(1, Math.ceil(1.8 * scale));
+  if (next >= 4) crystal = Math.max(1, Math.ceil(0.7 * scale));
+  if (unlock && req >= 12) crystal += req >= 24 ? 3 : req >= 18 ? 2 : 1;
+  if (next >= 7) {
+    metal += next * 2 - 8;
+    cloth += next - 4;
+  }
+  if (next >= 9) crystal += 2;
   return { gold, crystal, metal, cloth };
 }
 
@@ -393,21 +405,18 @@ function loadGame() {
     if (!state.bossesKilled) state.bossesKilled = {};
     if (state.autoNextMap == null) state.autoNextMap = true;
     ensureDiffProgress(state);
+    migrateHeroCampaigns(state);
     ensureWorldDiff(state);
     ensureDiffProgress(state);
-    if (!state.mapsEntered) {
-      state.mapsEntered = {};
-      for (const h of Object.values(state.heroes || {})) {
-        if (h.currentMap) state.mapsEntered[h.currentMap] = true;
-      }
-      for (const m of MAPS) {
-        if (mapUnlocked(state, m)) state.mapsEntered[m.id] = true;
-      }
+    syncCampaignAlias(state);
+    if (!state.mapsEntered) state.mapsEntered = { wasteland: true };
+    for (const h of Object.values(state.heroes || {})) {
+      const camp = campaignOf(state, h);
+      if (camp.bossesKilled?.visna) grantActClears(state, 1, h);
+      if (camp.bossesKilled?.duriel) grantActClears(state, 2, h);
+      if (camp.bossesKilled?.council) grantActClears(state, 3, h);
+      if (camp.bossesKilled?.baal) grantActClears(state, 5, h);
     }
-    if (state.bossesKilled?.visna) grantActClears(state, 1);
-    if (state.bossesKilled?.duriel) grantActClears(state, 2);
-    if (state.bossesKilled?.council) grantActClears(state, 3);
-    if (state.bossesKilled?.baal) grantActClears(state, 5);
     if (!state.skillEnableResetV1) {
       state.skillEnableResetV1 = true;
       for (const h of Object.values(state.heroes || {})) {
@@ -424,14 +433,17 @@ function loadGame() {
       }
       if (h.currentMap === 'rift') {
         ensureRiftHero(h);
-        if (!riftUnlocked(state)) h.currentMap = 'wasteland';
+        if (!riftUnlocked(state, h)) h.currentMap = 'wasteland';
       } else {
         if (h.currentMap && !MAPS.some(m => m.id === h.currentMap)) h.currentMap = 'wasteland';
         const cm = getMap(h.currentMap);
-        if (cm && !mapUnlocked(state, cm)) h.currentMap = 'wasteland';
+        if (cm && !mapUnlocked(state, cm, h)) h.currentMap = 'wasteland';
       }
       ensureRiftHero(h);
-      for (const it of Object.values(h.equipment || {})) ensureItemAffixes(it, h.level || 1);
+      for (const it of Object.values(h.equipment || {})) {
+        syncNamedItemPower(it);
+        ensureItemAffixes(it, h.level || 1);
+      }
       ensureEquippedSkillLevels(h);
       clampHeroResource(h);
     }
@@ -446,9 +458,15 @@ function loadGame() {
     if (isMapCleared(state, TOWN_UNLOCK_MAP)) state.town.unlocked = true;
     tryUnlockClasses(state);
     for (const h of Object.values(state.heroes || {})) {
-      for (const it of h.inventory || []) ensureItemAffixes(it, h.level || 1);
+      for (const it of h.inventory || []) {
+        syncNamedItemPower(it);
+        ensureItemAffixes(it, h.level || 1);
+      }
     }
-    for (const it of state.town.warehouse || []) ensureItemAffixes(it, 1);
+    for (const it of state.town.warehouse || []) {
+      syncNamedItemPower(it);
+      ensureItemAffixes(it, 1);
+    }
     return state;
   } catch {
     return createNewGame();
@@ -513,29 +531,101 @@ function cloneDiffProgress(p) {
   };
 }
 
+function campaignOf(state, hero) {
+  ensureWorldDiff(state);
+  const did = getDiffById(state.diffId).id;
+  const h = hero || getActiveHero(state);
+  if (!h) return emptyDiffProgress();
+  h.diffProgress = h.diffProgress || {};
+  if (!h.diffProgress[did]) h.diffProgress[did] = emptyDiffProgress();
+  const p = h.diffProgress[did];
+  p.mapKills = p.mapKills || {};
+  p.bossesKilled = p.bossesKilled || {};
+  p.mapsEntered = p.mapsEntered || { wasteland: true };
+  if (!p.mapsEntered.wasteland) p.mapsEntered.wasteland = true;
+  return p;
+}
+
+function pickCampaignKeeper(state) {
+  let best = null;
+  let bestScore = -1;
+  for (const h of Object.values(state.heroes || {})) {
+    if (!h) continue;
+    const score = (h.level || 1) * 1e12 + (h.kills || 0) * 1e6 + (h.exp || 0)
+      + (h.charId === state.activeCharId ? 1 : 0);
+    if (!best || score > bestScore) {
+      best = h;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function resetHeroMapProgress(h) {
+  if (!h) return;
+  h.diffProgress = {};
+  h.currentMap = 'wasteland';
+  h.holdMap = false;
+  h.riftFloor = 1;
+  h.riftProgress = 0;
+  h.riftBest = 0;
+  h.riftBossReady = false;
+}
+
+function migrateHeroCampaigns(state) {
+  if (!state || state.heroMapProgressV2) return;
+  state.heroMapProgressV2 = true;
+  state.heroMapProgressV1 = true;
+  ensureDiffProgress(state);
+  const keeper = pickCampaignKeeper(state);
+  for (const h of Object.values(state.heroes || {})) {
+    h.diffProgress = h.diffProgress || {};
+    if (h === keeper) {
+      for (const [did, p] of Object.entries(state.diffProgress || {})) {
+        const own = h.diffProgress[did];
+        const ownHas = own && (Object.keys(own.bossesKilled || {}).length || Object.keys(own.mapKills || {}).length);
+        if (!ownHas) h.diffProgress[did] = cloneDiffProgress(p);
+      }
+      continue;
+    }
+    resetHeroMapProgress(h);
+  }
+}
+
+function syncCampaignAlias(state, hero) {
+  const p = campaignOf(state, hero || getActiveHero(state));
+  state.mapKills = p.mapKills;
+  state.bossesKilled = p.bossesKilled;
+  state.mapsEntered = p.mapsEntered;
+}
+
 function snapshotHeroMaps(state) {
   const id = getDiffById(state.diffId).id;
-  const p = state.diffProgress[id] || (state.diffProgress[id] = emptyDiffProgress());
-  p.lastMaps = p.lastMaps || {};
+  const acc = state.diffProgress[id] || (state.diffProgress[id] = emptyDiffProgress());
+  acc.lastMaps = acc.lastMaps || {};
   for (const h of Object.values(state.heroes || {})) {
-    if (h?.charId) p.lastMaps[h.charId] = h.currentMap || 'wasteland';
+    if (!h?.charId) continue;
+    const camp = campaignOf(state, h);
+    camp.lastMap = h.currentMap || 'wasteland';
+    acc.lastMaps[h.charId] = camp.lastMap;
   }
 }
 
 function restoreHeroMaps(state) {
   const id = getDiffById(state.diffId).id;
-  const p = state.diffProgress[id] || emptyDiffProgress();
-  const last = p.lastMaps || {};
+  const accLast = (state.diffProgress[id] || emptyDiffProgress()).lastMaps || {};
   for (const h of Object.values(state.heroes || {})) {
-    const want = last[h.charId] || 'wasteland';
+    const camp = campaignOf(state, h);
+    const want = camp.lastMap || accLast[h.charId] || 'wasteland';
     if (want === 'rift') {
-      h.currentMap = riftUnlocked(state) ? 'rift' : 'wasteland';
+      h.currentMap = riftUnlocked(state, h) ? 'rift' : 'wasteland';
     } else {
       const m = getMap(want);
-      h.currentMap = (m && mapUnlocked(state, m)) ? want : 'wasteland';
+      h.currentMap = (m && mapUnlocked(state, m, h)) ? want : 'wasteland';
     }
+    camp.lastMap = h.currentMap;
     const cur = getMap(h.currentMap);
-    if (!cur || cur.isRift || !mapCampaignDone(state, cur)) h.holdMap = false;
+    if (!cur || cur.isRift || !mapCampaignDone(state, cur, h)) h.holdMap = false;
   }
 }
 
@@ -577,6 +667,7 @@ function ensureDiffProgress(state) {
   state.mapKills = p.mapKills;
   state.bossesKilled = p.bossesKilled;
   state.mapsEntered = p.mapsEntered;
+  syncCampaignAlias(state);
   return state;
 }
 
@@ -632,6 +723,7 @@ function setWorldDiff(state, id) {
   state.diffId = d.id;
   ensureDiffProgress(state);
   restoreHeroMaps(state);
+  syncCampaignAlias(state);
   return { ok: true, diff: d };
 }
 
@@ -687,17 +779,17 @@ function tryAutoNextMap(state, hero) {
   if (hero.currentMap === 'rift') return null;
   const map = getMap(hero.currentMap);
   if (!map || map.isRift) return null;
-  const p = mapClearProgress(state, map);
+  const p = mapClearProgress(state, map, hero);
   if (!p.ready) return null;
-  if (map.isBoss && !state.bossesKilled?.[map.bossId]) return null;
+  if (map.isBoss && !campaignOf(state, hero).bossesKilled?.[map.bossId]) return null;
   const idx = MAPS.findIndex(m => m.id === map.id);
   for (let i = idx + 1; i < MAPS.length; i++) {
     const n = MAPS[i];
-    if (!mapUnlocked(state, n)) continue;
+    if (!mapUnlocked(state, n, hero)) continue;
     if (n.id === hero.currentMap) return null;
     hero.currentMap = n.id;
-    state.mapsEntered = state.mapsEntered || {};
-    state.mapsEntered[n.id] = true;
+    campaignOf(state, hero).mapsEntered[n.id] = true;
+    campaignOf(state, hero).lastMap = n.id;
     return n;
   }
   return null;
@@ -731,9 +823,10 @@ function applyOneIdleKill(state, hero, map) {
     return;
   }
   state.mapKills = state.mapKills || {};
+  const camp = campaignOf(state, hero);
   const need = mapProgressNeed(map);
-  const have = state.mapKills[hero.currentMap] || 0;
-  if (have < need) state.mapKills[hero.currentMap] = have + 1;
+  const have = camp.mapKills[hero.currentMap] || 0;
+  if (have < need) camp.mapKills[hero.currentMap] = have + 1;
   maybeUnlockTown(state);
   tryAutoNextMap(state, hero);
 }
@@ -757,7 +850,7 @@ function applyIdleHero(state, hero, dt, opts = {}) {
   while (guard++ < maxKills) {
     const map = getCurrentMap(hero, state);
     if (!map) return;
-    if (map.isBoss && map.bossId && !state.bossesKilled?.[map.bossId] && isChapterBossReady(state, map)) return;
+    if (map.isBoss && map.bossId && !campaignOf(state, hero).bossesKilled?.[map.bossId] && isChapterBossReady(state, map, hero)) return;
     if ((hero.currentMap === 'rift' || map.isRift) && hero.riftBossReady) return;
     const interval = idleKillInterval(hero, map);
     if (hero._idleAcc < interval) return;
@@ -805,15 +898,15 @@ function tryUnlockClasses(state) {
   return unlocked;
 }
 
-function mapClearProgress(state, map) {
+function mapClearProgress(state, map, hero) {
+  hero = hero || getActiveHero(state);
   if (map?.isRift) {
-    const hero = getActiveHero(state);
     ensureRiftHero(hero);
     const need = riftProgressNeed(hero.riftFloor);
     const have = hero.riftBossReady ? need : Math.min(need, hero.riftProgress || 0);
     return { have, need, pct: Math.min(100, Math.floor((have / Math.max(1, need)) * 100)), ready: !!hero.riftBossReady };
   }
-  const have = state.mapKills?.[map.id] || 0;
+  const have = campaignOf(state, hero).mapKills?.[map.id] || 0;
   const need = mapProgressNeed(map);
   return { have, need, pct: Math.min(100, Math.floor((have / Math.max(1, need)) * 100)), ready: have >= need };
 }
@@ -832,11 +925,11 @@ function onRiftBossKill(state, hero, monster) {
   return { cleared, next: hero.riftFloor, unlocked: riftHighestOpen(hero), loot };
 }
 
-function grantActClears(state, act) {
-  state.mapKills = state.mapKills || {};
+function grantActClears(state, act, hero) {
+  const camp = campaignOf(state, hero || getActiveHero(state));
   for (const m of MAPS) {
     if (m.act === act) {
-      state.mapKills[m.id] = Math.max(state.mapKills[m.id] || 0, mapProgressNeed(m));
+      camp.mapKills[m.id] = Math.max(camp.mapKills[m.id] || 0, mapProgressNeed(m));
     }
   }
 }
@@ -847,35 +940,39 @@ function mapProgressNeed(map) {
   return map.clearKills || 140;
 }
 
-function riftUnlocked(state) {
-  return !!(state?.bossesKilled?.diablo);
+function riftUnlocked(state, hero) {
+  return !!campaignOf(state, hero || getActiveHero(state)).bossesKilled?.diablo;
 }
 
-function mapUnlocked(state, map) {
+function mapUnlocked(state, map, hero) {
   if (!map) return false;
-  if (map.isRift || map.id === 'rift') return riftUnlocked(state);
-  state.bossesKilled = state.bossesKilled || {};
-  if (map.unlockBoss && !state.bossesKilled[map.unlockBoss]) return false;
+  hero = hero || getActiveHero(state);
+  if (map.isRift || map.id === 'rift') return riftUnlocked(state, hero);
+  const camp = campaignOf(state, hero);
+  if (map.unlockBoss && !camp.bossesKilled[map.unlockBoss]) return false;
   if (map.unlockPrev) {
     const prev = MAPS.find(m => m.id === map.unlockPrev);
     if (prev && prev.act === map.act) {
       const need = mapProgressNeed(prev);
-      if ((state.mapKills?.[map.unlockPrev] || 0) < need) return false;
+      if ((camp.mapKills?.[map.unlockPrev] || 0) < need) return false;
     }
   }
   return true;
 }
 
-function isMapCleared(state, mapId) {
+function isMapCleared(state, mapId, hero) {
   const map = MAPS.find(m => m.id === mapId);
-  return !!map && mapClearProgress(state, map).ready;
+  if (!map) return false;
+  if (hero) return mapCampaignDone(state, map, hero);
+  return Object.values(state.heroes || {}).some(h => mapCampaignDone(state, map, h));
 }
 
-function mapCampaignDone(state, map) {
+function mapCampaignDone(state, map, hero) {
+  hero = hero || getActiveHero(state);
   if (!map || map.isRift || map.id === 'rift') return false;
-  if (!mapUnlocked(state, map)) return false;
-  if (map.isBoss && map.bossId) return !!state.bossesKilled?.[map.bossId];
-  return mapClearProgress(state, map).ready;
+  if (!mapUnlocked(state, map, hero)) return false;
+  if (map.isBoss && map.bossId) return !!campaignOf(state, hero).bossesKilled?.[map.bossId];
+  return mapClearProgress(state, map, hero).ready;
 }
 
 function ensureTown(state) {
@@ -927,33 +1024,37 @@ function withdrawFromWarehouse(state, uid) {
   return { ok: true, item };
 }
 
-function isChapterBossReady(state, map) {
+function isChapterBossReady(state, map, hero) {
   if (!map?.isBoss || !map.bossId) return false;
-  return (state.mapKills?.[map.id] || 0) >= mapProgressNeed(map);
+  hero = hero || getActiveHero(state);
+  return (campaignOf(state, hero).mapKills?.[map.id] || 0) >= mapProgressNeed(map);
 }
 
-function chapterBossAppearChance(state, map, pity = 0) {
-  if (!isChapterBossReady(state, map)) return 0;
-  if (!state.bossesKilled?.[map.bossId]) return 1;
+function chapterBossAppearChance(state, map, pity = 0, hero) {
+  hero = hero || getActiveHero(state);
+  if (!isChapterBossReady(state, map, hero)) return 0;
+  if (!campaignOf(state, hero).bossesKilled?.[map.bossId]) return 1;
   return Math.min(1, 0.1 + Math.max(0, pity) * 0.05);
 }
 
-function mapClearFactor(state, map) {
+function mapClearFactor(state, map, hero) {
   if (map?.isRift) return Math.min(1.5, 0.9 + Math.max(0, (map.riftFloor || 1) - 1) * 0.02);
+  hero = hero || getActiveHero(state);
   const need = map.clearKills || 140;
-  return (state.mapKills?.[map.id] || 0) / need;
+  return (campaignOf(state, hero).mapKills?.[map.id] || 0) / need;
 }
 
-function mapUnlockHint(state, map) {
+function mapUnlockHint(state, map, hero) {
+  hero = hero || getActiveHero(state);
   if (map?.isRift || map?.id === 'rift') return '解锁世界之石要塞后开放';
-  state.bossesKilled = state.bossesKilled || {};
-  if (map.unlockBoss && !state.bossesKilled[map.unlockBoss]) {
+  const camp = campaignOf(state, hero);
+  if (map.unlockBoss && !camp.bossesKilled[map.unlockBoss]) {
     const b = BOSSES[map.unlockBoss];
     return `需击败 ${b?.name || map.unlockBoss}（第 ${map.act - 1} 章）`;
   }
   if (map.unlockPrev) {
     const prev = MAPS.find(m => m.id === map.unlockPrev);
-    const p = mapClearProgress(state, prev);
+    const p = mapClearProgress(state, prev, hero);
     return `${prev.name} ${Math.min(p.have, p.need)}/${p.need}`;
   }
   return '';
@@ -974,19 +1075,36 @@ function rollQuality(kindBonus = 1) {
   return 'normal';
 }
 
-function maybeMorph(item) {
-  if (item.morphId) return item;
-  const q = item.quality;
-  let chance = 0;
-  if (q === 'unique' || q === 'ancientUnique') chance = q === 'ancientUnique' ? 1 : 0.7;
-  else if (q === 'legendary') chance = 0.6;
-  else if (q === 'ancient') chance = 1;
-  if (Math.random() > chance) return item;
-  const ids = Object.keys(MORPHS);
-  item.morphId = ids[Math.floor(Math.random() * ids.length)];
-  const skills = Object.values(SKILLS).flatMap(tree => Object.keys(tree));
-  item.morphSkill = skills[Math.floor(Math.random() * skills.length)];
+function namedItemTemplate(item) {
+  if (!item?.id) return null;
+  return [...UNIQUE_ITEMS, ...LEGENDARY_ITEMS].find(d => d.id === item.id) || null;
+}
+
+function syncNamedItemPower(item) {
+  if (!item) return item;
+  const def = namedItemTemplate(item);
+  if (!def) {
+    delete item.morphId;
+    delete item.morphSkill;
+    delete item.itemPower;
+    return item;
+  }
+  if (def.morphId) {
+    item.morphId = def.morphId;
+    item.morphSkill = def.morphSkill || null;
+  } else {
+    delete item.morphId;
+    delete item.morphSkill;
+  }
+  if (def.itemPower) item.itemPower = { ...def.itemPower };
+  else delete item.itemPower;
+  if (def.legendaryEffect) item.legendaryEffect = def.legendaryEffect;
+  if (def.reqClass) item.reqClass = def.reqClass;
   return item;
+}
+
+function maybeMorph(item) {
+  return syncNamedItemPower(item);
 }
 
 function itemLevelOf(itemOrLevel, fallback = 1) {
@@ -1479,7 +1597,7 @@ function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = n
     if (def.armor) item.listedArmor = def.armor;
     if (def.attackSpeed) item.listedAttackSpeed = def.attackSpeed;
     refreshItemBases(item);
-    return stampLootDiff(maybeMorph(rollItemAffixes(item, item.itemLevel)), state);
+    return stampLootDiff(syncNamedItemPower(rollItemAffixes(item, item.itemLevel)), state);
   };
 
   if (quality === 'unique' || quality === 'ancientUnique') {
@@ -1520,7 +1638,7 @@ function generateLoot(mapLevel, forceQuality = null, kind = 'normal', charId = n
   if (base.reqClass) item.reqClass = base.reqClass;
   refreshItemBases(item);
   rollItemAffixes(item, item.itemLevel);
-  return stampLootDiff(maybeMorph(item), state);
+  return stampLootDiff(item, state);
 }
 
 function sellValue(item) {
@@ -1699,10 +1817,11 @@ function allocateSkillPoint(hero, skillId, state) {
   }
   if (!hero.equippedSkills) hero.equippedSkills = [];
   const combatBar = skill.type === 'active' && skill.tree !== 'warcry'
-    && (typeof isCoreCombatSkill === 'function' ? isCoreCombatSkill(skill) : (skill.damageMult || 0) >= 1);
+    && (typeof isCoreCombatSkill === 'function' ? isCoreCombatSkill(skill) : (skill.damageMult || 0) > 0);
   if (!hero.equippedSkills.includes(skillId) && combatBar && hero.equippedSkills.length < 8) {
     hero.equippedSkills.push(skillId);
   }
+  ensureEquippedSkillLevels(hero);
   return { ok: true, cost };
 }
 
@@ -1735,8 +1854,8 @@ function salvagePreview(item) {
     metal = base;
     crystal = Math.max(0, Math.floor(base * 0.08 + (rank >= 4 ? 1 : 0)));
   } else if (g === 'armor') {
-    cloth = base;
-    metal = Math.max(0, Math.floor(base * 0.1));
+    metal = base <= 1 ? 1 : Math.max(1, Math.round(base * 0.2));
+    cloth = Math.max(0, base - metal);
   } else {
     crystal = base;
   }
@@ -2433,18 +2552,24 @@ function onBossKill(state, bossId) {
   const map = MAPS.find(m => m.bossId === bossId);
   const scaled = withDiffLevels(map, state);
   const lv = scaled ? Math.round((scaled.levelMin + scaled.levelMax) / 2) : (boss.level || 1);
-  const firstOnDiff = !state.bossesKilled[bossId];
-  const firstEver = !state.bossesEver[bossId];
+  const hero = getActiveHero(state);
+  const camp = campaignOf(state, hero);
+  const firstOnDiff = !camp.bossesKilled[bossId];
   const loot = firstOnDiff
-    ? generateLoot(lv, 'legendary', 'actBoss', getActiveHero(state)?.charId, state)
-    : generateLoot(lv, null, 'actBoss', getActiveHero(state)?.charId, state);
+    ? generateLoot(lv, 'legendary', 'actBoss', hero?.charId, state)
+    : generateLoot(lv, null, 'actBoss', hero?.charId, state);
   const unlockedDiff = bossId === 'baal' ? markDiffCleared(state, getWorldDiff(state).id) : null;
-  state.bossesKilled[bossId] = true;
+  camp.bossesKilled[bossId] = true;
+  const did = getWorldDiff(state).id;
+  state.diffProgress = state.diffProgress || {};
+  if (!state.diffProgress[did]) state.diffProgress[did] = emptyDiffProgress();
+  state.diffProgress[did].bossesKilled = state.diffProgress[did].bossesKilled || {};
+  state.diffProgress[did].bossesKilled[bossId] = true;
   state.bossesEver[bossId] = true;
   if (!firstOnDiff) {
     return { loot, repeat: true, unlockedDiff };
   }
-  if (map?.act) grantActClears(state, map.act);
+  if (map?.act) grantActClears(state, map.act, hero);
   const unlocked = tryUnlockClasses(state);
   const nextAct = (map?.act || 0) + 1;
   const nextMaps = MAPS.filter(m => m.act === nextAct);
