@@ -34,7 +34,7 @@
     window.__applyUiMode = applyUiMode;
   })();
   </script>
-  <link rel="stylesheet" href="css/style.css?v=130">
+  <link rel="stylesheet" href="css/style.css?v=152">
 </head>
 <body data-mview="combat">
   <div class="app">
@@ -51,6 +51,7 @@
 
     <main class="main-grid">
       <section class="panel hero-panel" id="camp-panel">
+        <div class="camp-scroll">
         <div class="camp-head">
           <div>
             <button type="button" id="btn-shop" class="btn-head">
@@ -121,6 +122,7 @@
           <button type="button" class="btn-small" id="inv-next">下一页</button>
         </div>
         <div id="camp-inv" class="inv-grid"></div>
+        </div>
         <div class="camp-inv-tools">
           <button type="button" class="btn-small" id="btn-sort">整理</button>
           <button type="button" class="btn-small" id="btn-inv-multi">多选</button>
@@ -152,13 +154,22 @@
             <div id="kill-counter" class="kill-counter">击杀 0 / 80</div>
           </div>
           <div id="combat-buffs" class="combat-buffs"></div>
+          <div id="combat-skills" class="combat-skills" aria-label="主动技能"></div>
         </div>
-        <div id="combat-skills" class="combat-skills" aria-label="主动技能"></div>
         <div class="char-switch">
           <div class="char-switch-label">角色切换</div>
           <div id="char-tabs" class="char-tabs" role="tablist" aria-label="切换角色"></div>
         </div>
-        <div id="combat-log" class="combat-log"></div>
+        <div class="combat-logs">
+          <div class="combat-log-pane">
+            <div class="combat-log-title">战斗数据</div>
+            <div id="combat-log" class="combat-log" aria-label="战斗数据"></div>
+          </div>
+          <div class="combat-log-pane">
+            <div class="combat-log-title">掉落数据</div>
+            <div id="loot-log" class="combat-log" aria-label="掉落数据"></div>
+          </div>
+        </div>
       </section>
 
       <section class="panel stats-panel">
@@ -223,12 +234,12 @@
     </div>
   </div>
 
-  <script src="js/data.js?v=130"></script>
-  <script src="js/catalog.js?v=130"></script>
-  <script src="js/combat.js?v=130"></script>
-  <script src="js/iso.js?v=130"></script>
-  <script src="js/game.js?v=130"></script>
-  <script src="js/ui.js?v=130"></script>
-  <script src="js/main.js?v=130"></script>
+  <script src="js/data.js?v=152"></script>
+  <script src="js/catalog.js?v=152"></script>
+  <script src="js/combat.js?v=152"></script>
+  <script src="js/iso.js?v=152"></script>
+  <script src="js/game.js?v=152"></script>
+  <script src="js/ui.js?v=152"></script>
+  <script src="js/main.js?v=152"></script>
 </body>
 </html>

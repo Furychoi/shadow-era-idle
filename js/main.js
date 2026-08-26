@@ -18,6 +18,9 @@ const combat = {
   minionIdx: 0,
   lastCorpse: null,
   buffs: {},
+  heroDebuffs: {},
+  heroStun: 0,
+  heroDots: [],
   channel: null,
   zones: [],
   turrets: [],
@@ -35,6 +38,9 @@ try {
     combat.killCount = 0;
     combat.spawnTimer = 0;
     combat.bossPity = 0;
+    combat.heroDebuffs = {};
+    combat.heroStun = 0;
+    combat.heroDots = [];
   });
 } catch (err) {
   console.error('[init]', err);
@@ -172,6 +178,10 @@ function syncCombatClock() {
   }
 }
 
+function monsterSkillLabel(m) {
+  return (m?.monsterSkills || []).map(s => getMonsterSkillDef(s)?.name).filter(Boolean).join('、');
+}
+
 function spawnPack(map) {
   const hero = getActiveHero(gameState);
   if (map?.isRift && hero) {
@@ -182,7 +192,7 @@ function spawnPack(map) {
       combat.target = g;
       combat.attackTimer = 0.4;
       combat.spawnTimer = 1.15;
-      addLog({ type: 'boss', text: `${g.name}（${map.name}）出现了！` });
+      addLog({ type: 'boss', text: `${g.name}（${map.name}）出现了！${monsterSkillLabel(g) ? ` 技能：${monsterSkillLabel(g)}` : ''}` });
       return;
     }
   }
@@ -193,7 +203,7 @@ function spawnPack(map) {
     combat.monsters = [m];
     combat.bossPity = 0;
     const pct = Math.round(chance * 100);
-    addLog({ type: 'boss', text: `章节首领 ${m.name} 出现了！（${pct}%）` });
+    addLog({ type: 'boss', text: `章节首领 ${m.name} 出现了！（${pct}%）${monsterSkillLabel(m) ? ` 技能：${monsterSkillLabel(m)}` : ''}` });
     combat.target = m;
     combat.attackTimer = 0.4;
     combat.spawnTimer = 1.15;
@@ -220,9 +230,9 @@ function spawnPack(map) {
     addLog({ type: 'boss', text: '宝藏哥布林出现了！正在逃跑…' });
   }
   const hiddens = combat.monsters.filter(m => m.kind === 'hidden');
-  if (hiddens.length) addLog({ type: 'boss', text: `隐藏怪物：${hiddens[0].name}` });
+  if (hiddens.length) addLog({ type: 'boss', text: `隐藏怪物：${hiddens[0].name}${monsterSkillLabel(hiddens[0]) ? ` 技能：${monsterSkillLabel(hiddens[0])}` : ''}` });
   const rares = combat.monsters.filter(m => m.kind === 'rare');
-  if (rares.length) addLog({ type: 'boss', text: `稀有怪物：${rares[0].name}` });
+  if (rares.length) addLog({ type: 'boss', text: `稀有怪物：${rares[0].name}${monsterSkillLabel(rares[0]) ? ` 技能：${monsterSkillLabel(rares[0])}` : ''}` });
   combat.target = combat.monsters.find(m => m.treasureGoblin) || combat.monsters[0];
   combat.attackTimer = 0.4;
   combat.spawnTimer = 1.15;
@@ -304,13 +314,15 @@ function tickMonsterAttacks(dt, hero, heroIso, stats) {
     const tank = row.tank;
     m.attackTimer = (m.attackTimer || 2.4) - dt;
     if (m.attackTimer > 0) continue;
-    const dmg = calcMonsterDamage(m, hero);
+    const dmg = calcMonsterDamage(m, hero, stats);
     if (tank) {
       tank.hp = Math.max(0, (tank.hp || 0) - dmg);
       window.isoField?.addFx('dmg', tank.x, tank.y, dmg, '#ffaa88');
       if (tank.hp <= 0) tank.respawn = 8;
     } else {
       hero.currentHp -= dmg;
+      const leech = stats._debuff?.leech || 0;
+      if (leech > 0 && m.hp > 0) m.hp = Math.min(m.maxHp, m.hp + dmg * leech);
       if ((stats.reflectPct || 0) > 0 && m.hp > 0) {
         const thorn = Math.max(1, Math.floor(dmg * stats.reflectPct));
         m.hp -= thorn;
@@ -336,8 +348,132 @@ function tickMonsterAttacks(dt, hero, heroIso, stats) {
         return;
       }
     }
-    const atkSpd = m.eliteAffixes?.some(a => a.speed) ? 1.9 : (m.ranged ? 2.45 : 2.7);
-    m.attackTimer = Math.max(m.attackTimer || 0, atkSpd);
+    m.attackTimer = Math.max(m.attackTimer || 0, monsterAttackInterval(m));
+  }
+}
+
+function tickHeroDebuffs(dt) {
+  combat.heroDebuffs = combat.heroDebuffs || {};
+  for (const id of Object.keys(combat.heroDebuffs)) {
+    const d = combat.heroDebuffs[id];
+    d.t = (d.t || 0) - dt;
+    if (d.t <= 0) delete combat.heroDebuffs[id];
+  }
+  combat.heroStun = Math.max(0, (combat.heroStun || 0) - dt);
+}
+
+function applyMonsterCurseToHero(skill, srcName) {
+  combat.heroDebuffs = combat.heroDebuffs || {};
+  const base = skill.curse || {};
+  const id = base.id || skill.id;
+  const dmgDown = base.dmgDown || skill.enemyDmgDown || 0;
+  combat.heroDebuffs[id] = {
+    id,
+    name: skill.name,
+    src: srcName,
+    t: base.dur || 8,
+    dmgDown,
+    resDown: base.resDown || 0,
+    slow: base.slow || 0,
+    physTaken: base.physTaken || 0,
+    armorDown: base.armorDown || 0,
+    leech: base.leech || 0,
+  };
+}
+
+function hurtHeroFromMonster(hero, m, dmg, stats, heroIso, label, color) {
+  hero.currentHp -= dmg;
+  const leech = stats._debuff?.leech || 0;
+  if (leech > 0 && m.hp > 0) m.hp = Math.min(m.maxHp, m.hp + dmg * leech);
+  if (heroIso) window.isoField?.addFx('dmg', heroIso.x, heroIso.y, label || dmg, color || '#ff8866');
+  if (hero.currentHp <= 0) {
+    handleDeath(hero);
+    return true;
+  }
+  return false;
+}
+
+function castMonsterSkill(m, hero, heroIso, skill, stats) {
+  if (!skill || !hero || hero.isDead) return false;
+  if (skill.id === 'howl' && !skill.curse) {
+    applyMonsterCurseToHero({ id: 'howl', name: skill.name, enemyDmgDown: 0.14, curse: { id: 'howl', dur: 6, dmgDown: 0.14 } }, m.name);
+  }
+  if (skill.curse) applyMonsterCurseToHero(skill, m.name);
+  if (skill.id === 'warCry' || skill.id === 'stun') {
+    combat.heroStun = Math.max(combat.heroStun || 0, skill.id === 'warCry' ? 1.15 : 0.85);
+    combat.channel = null;
+  }
+  const hasDmg = (skill.damageMult || 0) > 0 && skill.id !== 'howl';
+  let dmg = 0;
+  if (hasDmg) {
+    const hits = Math.max(1, skill.hits || 1);
+    const mult = Math.min(2.1, skill.damageMult || 1);
+    dmg = Math.max(1, Math.floor(calcMonsterDamage(m, hero, stats) * mult * MONSTER_SKILL_DMG * (0.72 + hits * 0.08)));
+  }
+  if (dmg > 0) {
+    if (hurtHeroFromMonster(hero, m, dmg, stats, heroIso, `${skill.name} ${dmg}`, '#ff9a70')) return true;
+  }
+  if (skill.duration && skill.lingerTick && dmg > 0) {
+    const tickDmg = Math.max(1, Math.floor(dmg * 0.28));
+    combat.heroDots = combat.heroDots || [];
+    combat.heroDots.push({
+      t: Math.min(4.5, skill.duration || 4),
+      tick: skill.lingerTick || 0.5,
+      acc: 0,
+      dmg: tickDmg,
+      name: skill.name,
+      src: m,
+    });
+  }
+  if (m.iso && heroIso) {
+    window.isoField?.playSkill(skill, m.iso, heroIso, [{ iso: heroIso, hp: 1 }], {
+      kind: skill.channel ? 'nova' : undefined,
+      radius: skill.aoeRadius,
+    });
+    window.isoField?.addFx('skill', m.iso.x, m.iso.y, skill.name, '#e07090');
+  }
+  addLog({ type: 'boss', text: `${m.name} 施放 ${skill.name}${dmg ? ` ${formatCompactNum(dmg)}` : ''}` });
+  return true;
+}
+
+function tickHeroDots(dt, hero, stats, heroIso) {
+  if (!hero || hero.isDead) {
+    combat.heroDots = [];
+    return;
+  }
+  const keep = [];
+  for (const z of combat.heroDots || []) {
+    z.t -= dt;
+    z.acc = (z.acc || 0) + dt;
+    if (z.acc >= (z.tick || 0.5)) {
+      z.acc = 0;
+      const src = z.src && z.src.hp > 0 ? z.src : { hp: 0, maxHp: 1 };
+      if (hurtHeroFromMonster(hero, src, z.dmg, stats, heroIso, `${z.name} ${z.dmg}`, '#c070e0')) return;
+    }
+    if (z.t > 0) keep.push(z);
+  }
+  combat.heroDots = keep;
+}
+
+function tickMonsterSkills(dt, hero, heroIso, stats) {
+  tickHeroDots(dt, hero, stats, heroIso);
+  if (!hero || hero.isDead || !heroIso) return;
+  for (const m of combat.monsters) {
+    if (!m || m.hp <= 0 || !m.monsterSkills?.length) continue;
+    const dist = isoDist(heroIso, m.iso);
+    const reach = Math.max(m.attackRange || 1.2, 5.2);
+    if (dist > reach + 0.45) continue;
+    for (const slot of m.monsterSkills) {
+      slot.cdLeft = (slot.cdLeft || 0) - dt;
+      if (slot.cdLeft > 0) continue;
+      const skill = getMonsterSkillDef(slot);
+      if (!skill) continue;
+      if (castMonsterSkill(m, hero, heroIso, skill, stats)) {
+        const cd = Math.max(0.4, (skill.cooldown || 6) / monsterSpeedMult(m));
+        slot.cdLeft = cd;
+        break;
+      }
+    }
   }
 }
 
@@ -457,7 +593,11 @@ function updateCombat(dt) {
 
   const map = getCurrentMap(hero, gameState);
   tickBuffs(dt, hero);
-  const stats = calcHeroStats(hero, { useCombatBuffs: true, buffs: combat.buffs });
+  tickHeroDebuffs(dt);
+  const stats = applyHeroDebuffsToStats(
+    calcHeroStats(hero, { useCombatBuffs: true, buffs: combat.buffs }),
+    combat.heroDebuffs
+  );
   clampHeroResource(hero, stats);
   tickAuraPulses(dt, hero, stats);
   combat.comboWindow = Math.max(0, combat.comboWindow - dt);
@@ -528,6 +668,7 @@ function updateCombat(dt) {
     combat.attackTimer = 0.05;
     tickMonsterAI(dt, window.isoField?.hero, stats);
     tickMonsterAttacks(dt, hero, window.isoField?.hero, stats);
+    tickMonsterSkills(dt, hero, window.isoField?.hero, stats);
     return;
   }
 
@@ -555,7 +696,7 @@ function updateCombat(dt) {
         if (bossDef.phases[i].threshold < 1) {
           addLog({ type: 'boss', text: `${monster.name} 阶段 ${monster.phase}：${bossDef.phases[i].desc}` });
         }
-        if (hpPct <= 0.5) monster.damage = Math.floor(bossDef.damage * 1.25);
+        if (hpPct <= 0.5) monster.damage = Math.floor((monster.baseDamage || monster.damage) * 1.25);
       }
     }
   }
@@ -571,6 +712,7 @@ function updateCombat(dt) {
 
   tickMonsterAI(dt, hx, stats);
 
+  if ((combat.heroStun || 0) <= 0) {
   combat.attackTimer -= dt;
   if (combat.attackTimer <= 0) {
     const usedSkill = tryCastOneSkill(hero, monster, stats);
@@ -600,8 +742,10 @@ function updateCombat(dt) {
       }
     }
   }
+  }
 
   tickMonsterAttacks(dt, hero, hx, stats);
+  tickMonsterSkills(dt, hero, hx, stats);
 }
 
 function applyTauntPull(hero, skill, lv, heroIso) {
@@ -680,14 +824,26 @@ function aoeTargets(skill, primary, pack, heroIso, hero, stats, originOverride) 
   return hits;
 }
 
-function applySkillHits(hero, skill, primary, stats, opts = {}) {
-  if (!opts.silent && skill?.name) {
-    addLog({ type: 'skill', text: `${skill.name}` });
+function logSkillDamage(skill, hits) {
+  if (!skill?.name) return;
+  if (!hits.length) {
+    addLog({ type: 'skill', text: `${skill.name} 未中` });
+    return;
   }
+  const total = hits.reduce((s, h) => s + h.dmg, 0);
+  const crit = hits.some(h => h.crit);
+  const amt = formatCompactNum(hits.length === 1 ? hits[0].dmg : total);
+  const critTag = crit ? ' 暴击' : '';
+  const aoe = hits.length > 1 ? `（${hits.length}）` : '';
+  addLog({ type: 'skill', text: `${skill.name}${critTag} ${amt}${aoe}` });
+}
+
+function applySkillHits(hero, skill, primary, stats, opts = {}) {
   const pack = alivePack();
   const heroIso = window.isoField?.hero;
   const targets = aoeTargets(skill, primary, pack, heroIso, hero, stats, opts.origin);
   const killed = [];
+  const hits = [];
   for (const m of targets) {
     if (!m || m.hp <= 0) continue;
     const result = calcDamage(hero, m, skill);
@@ -698,6 +854,7 @@ function applySkillHits(hero, skill, primary, stats, opts = {}) {
     let dmg = skill.aoe && primary && m !== primary ? Math.floor(result.damage * 0.75) : result.damage;
     if (opts.coeff) dmg = Math.max(1, Math.floor(dmg * opts.coeff));
     m.hp -= dmg;
+    hits.push({ dmg, crit: !!result.isCrit });
     if (m.curse?.leech) {
       hero.currentHp = Math.min(stats.maxHp, hero.currentHp + dmg * m.curse.leech);
     }
@@ -706,6 +863,7 @@ function applySkillHits(hero, skill, primary, stats, opts = {}) {
     }
     if (m.hp <= 0) killed.push(m);
   }
+  if (!opts.silent) logSkillDamage(skill, hits);
   if (skill.curse) {
     const lv = Math.max(1, hero.skillLevels?.[skill.id] || 1);
     const scale = 1 + (lv - 1) * 0.07;
@@ -892,10 +1050,6 @@ function tryCastOneSkill(hero, monster, stats) {
   if ((skill.tags || []).includes('opener')) {
     combat.comboWindow = Math.max(combat.comboWindow || 0, 6 + (stats.windowBonus || 0));
     combat.lastOpener = skillId;
-  }
-  if (cost > 0) {
-    const resName = stats.resName || '资源';
-    addLog({ type: 'skill', text: `${skill.name} ${resName} ${Math.floor(before)} → ${Math.floor(hero.currentRes || 0)}` });
   }
   return true;
 }
@@ -1160,6 +1314,7 @@ function onMonsterKill(hero, monster) {
     return;
   }
 
+  let unlockedDiff = null;
   if (!monster.isBoss) {
     const map = getCurrentMap(hero, gameState);
     if (map?.isRift) {
@@ -1212,11 +1367,12 @@ function onMonsterKill(hero, monster) {
       addLog({ type: 'boss', text: `解锁${reward.unlockedDiff.name}难度` });
     }
     combat.killCount = campaignOf(gameState, hero).mapKills[hero.currentMap] || 0;
+    unlockedDiff = reward?.unlockedDiff;
   }
 
-  const jumped = tryAutoNextMap(gameState, hero);
+  const jumped = tryAutoNextMap(gameState, hero, unlockedDiff);
   if (jumped) {
-    addLog({ type: 'info', text: `自动进入 ${jumped.name}` });
+    addLog({ type: 'info', text: jumped.diff ? `自动进入${jumped.diff.name}难度 · ${jumped.map?.name || jumped.name}` : `自动进入 ${jumped.name}` });
     combat.monsters = [];
     combat.target = null;
     combat.bossPity = 0;
@@ -1260,6 +1416,9 @@ function handleDeath(hero) {
   combat.monsters = [];
   combat.target = null;
   combat.spawnTimer = 8;
+  combat.heroDebuffs = {};
+  combat.heroStun = 0;
+  combat.heroDots = [];
 }
 
 gameState.offlineClaimed = false;

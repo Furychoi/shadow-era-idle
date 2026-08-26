@@ -16,7 +16,7 @@ const WEAPON_CLASS_NAMES = {
   melee: '近战武器',
   bow: '弓/弩',
   javelin: '标枪',
-  caster: '法杖/法珠/图腾',
+  caster: '法杖',
   claw: '拳刃',
 };
 
@@ -766,7 +766,7 @@ const UNIQUE_ITEMS = [
   { id: 'death_mask', name: '死亡之眼', slot: 'helmet', icon: 'helm', reqClass: 'berserker', quality: 'unique', armor: 14, legendaryEffect: '击杀精英重置旋风斩', morphId: 'reset', morphSkill: 'whirlwind', affixes: [{ stat: 'critRate', value: 10, name: '暴击率' }, { stat: 'critDmg', value: 15, name: '暴击伤害' }] },
   { id: 'ape_hide', name: '人猿之皮', slot: 'chest', icon: 'robe', reqClass: 'druid', quality: 'unique', armor: 22, legendaryEffect: '变形中仍可释放飓风', morphId: 'shapecast', morphSkill: 'hurricane', affixes: [{ stat: 'hp', value: 80, name: '生命' }, { stat: 'str', value: 10, name: '力量' }] },
   { id: 'bartucs', name: '巴图克之爪', slot: 'weapon', weaponClass: 'claw', icon: 'claw', reqClass: 'assassin', quality: 'unique', baseDamage: 32, legendaryEffect: '延长武学连招窗口', morphId: 'window', morphSkill: 'phoenix', affixes: [{ stat: 'agi', value: 16, name: '敏捷' }, { stat: 'attackSpeed', value: 14, name: '攻击速度' }] },
-  { id: 'eschuta', name: '艾斯屈塔之杖', slot: 'weapon', weaponClass: 'caster', icon: 'orb', reqClass: 'sorceress', quality: 'unique', baseDamage: 20, legendaryEffect: '连锁闪电额外跳跃', morphId: 'chain', morphSkill: 'chainLightning', affixes: [{ stat: 'int', value: 18, name: '智力' }, { stat: 'fireDmgPct', value: 16, name: '火系伤害' }, { stat: 'lightningDmgPct', value: 16, name: '电系伤害' }] },
+  { id: 'eschuta', name: '艾斯屈塔之杖', slot: 'weapon', weaponClass: 'caster', icon: 'staff', reqClass: 'sorceress', quality: 'unique', baseDamage: 20, legendaryEffect: '连锁闪电额外跳跃', morphId: 'chain', morphSkill: 'chainLightning', affixes: [{ stat: 'int', value: 18, name: '智力' }, { stat: 'fireDmgPct', value: 16, name: '火系伤害' }, { stat: 'lightningDmgPct', value: 16, name: '电系伤害' }] },
   { id: 'heaven_scepter', name: '天堂权杖', slot: 'weapon', weaponClass: 'melee', icon: 'scepter', reqClass: 'paladin', quality: 'unique', baseDamage: 30, legendaryEffect: '圣锤环绕自身', morphId: 'nova', morphSkill: 'blessedHammer', affixes: [{ stat: 'str', value: 12, name: '力量' }, { stat: 'allRes', value: 10, name: '全抗性' }] },
   { id: 'homunculus', name: '魔身之颅', slot: 'weapon', weaponClass: 'caster', icon: 'wand', reqClass: 'necro', quality: 'unique', baseDamage: 19, legendaryEffect: '普攻触发尸爆', morphId: 'proc', morphSkill: 'corpseExplosion', affixes: [{ stat: 'int', value: 14, name: '智力' }, { stat: 'hp', value: 50, name: '生命' }] },
 ];
@@ -783,7 +783,7 @@ const LEGENDARY_ITEMS = [
   { id: 'glory_helm', name: '荣光头盔', slot: 'helmet', icon: 'helm', quality: 'set', setId: 'glory', reqClass: 'amazon', armor: 9, affixes: [{ stat: 'critRate', value: 6, name: '暴击率' }] },
   { id: 'glory_chest', name: '荣光胸甲', slot: 'chest', quality: 'set', setId: 'glory', reqClass: 'amazon', armor: 16, affixes: [{ stat: 'hp', value: 40, name: '生命' }] },
   { id: 'glory_gloves', name: '荣光手套', slot: 'gloves', quality: 'set', setId: 'glory', reqClass: 'amazon', armor: 5, affixes: [{ stat: 'attackSpeed', value: 8, name: '攻击速度' }] },
-  { id: 'tal_orb', name: '塔拉夏法珠', slot: 'weapon', weaponClass: 'caster', icon: 'orb', quality: 'set', setId: 'talrasha', reqClass: 'sorceress', baseDamage: 18, affixes: [{ stat: 'int', value: 12, name: '智力' }, { stat: 'fireDmgPct', value: 10, name: '火系伤害' }] },
+  { id: 'tal_orb', name: '塔拉夏法珠', slot: 'offhand', offhandClass: 'orb', icon: 'orb', quality: 'set', setId: 'talrasha', reqClass: 'sorceress', armor: 3, baseDamage: 10, affixes: [{ stat: 'int', value: 12, name: '智力' }, { stat: 'fireDmgPct', value: 10, name: '火系伤害' }] },
   { id: 'tal_chest', name: '塔拉夏法袍', slot: 'chest', icon: 'robe', quality: 'set', setId: 'talrasha', reqClass: 'sorceress', armor: 8, affixes: [{ stat: 'hp', value: 35, name: '生命' }, { stat: 'int', value: 8, name: '智力' }] },
   { id: 'tal_belt', name: '塔拉夏腰带', slot: 'belt', quality: 'set', setId: 'talrasha', reqClass: 'sorceress', armor: 4, affixes: [{ stat: 'allRes', value: 8, name: '全抗性' }] },
   { id: 'tal_helm', name: '塔拉夏头饰', slot: 'helmet', icon: 'magehat', quality: 'set', setId: 'talrasha', reqClass: 'sorceress', armor: 6, affixes: [{ stat: 'int', value: 6, name: '智力' }] },
@@ -819,7 +819,6 @@ const BASE_ITEMS = {
     { name: '标枪', baseDamage: 12, weaponClass: 'javelin', icon: 'javelin' },
     { name: '投枪', baseDamage: 17, weaponClass: 'javelin', icon: 'javelin', reqClass: 'amazon' },
     { name: '法杖', baseDamage: 10, weaponClass: 'caster', icon: 'staff' },
-    { name: '法珠', baseDamage: 12, weaponClass: 'caster', icon: 'orb', reqClass: 'sorceress' },
     { name: '图腾', baseDamage: 11, weaponClass: 'caster', icon: 'totem', reqClass: 'druid' },
     { name: '魔杖', baseDamage: 9, weaponClass: 'caster', icon: 'wand', reqClass: 'necro' },
     { name: '拳刃', baseDamage: 14, weaponClass: 'claw', icon: 'claw', reqClass: 'assassin' },
@@ -851,6 +850,7 @@ const BASE_ITEMS = {
     { name: '铁盾', armor: 16, offhandClass: 'shield', icon: 'shield', reqClass: 'paladin' },
     { name: '箭袋', armor: 2, offhandClass: 'quiver', icon: 'quiver', attackSpeed: 0.06 },
     { name: '猎手箭袋', armor: 3, offhandClass: 'quiver', icon: 'quiver', attackSpeed: 0.1, reqClass: 'amazon' },
+    { name: '法珠', armor: 2, baseDamage: 8, offhandClass: 'orb', icon: 'orb', reqClass: 'sorceress' },
   ],
 };
 

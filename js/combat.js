@@ -1,3 +1,18 @@
+const CHAPTER_BOSS_DMG_MULT = 10;
+const BOSS_SPEED_MULT = 5;
+const MONSTER_SKILL_DMG = 0.42;
+
+const MONSTER_DMG_SKILL_REFS = [
+  ...['fireBolt', 'fireball', 'fireWall', 'meteor', 'iceBolt', 'frostNova', 'glacial', 'blizzard', 'frozenOrb', 'chargedBolt', 'chainLightning', 'thunderstorm']
+    .map(id => ({ classId: 'sorceress', id })),
+  ...['smash', 'leap', 'stun', 'whirlwind', 'frenzy', 'howl', 'warCry']
+    .map(id => ({ classId: 'berserker', id })),
+  ...['teeth', 'poisonNova', 'boneSpear', 'corpseExplosion', 'boneSpirit']
+    .map(id => ({ classId: 'necro', id })),
+];
+const MONSTER_DEBUFF_SKILL_REFS = ['weaken', 'decrepify', 'lowerResist', 'amplify', 'lifeTap']
+  .map(id => ({ classId: 'necro', id }));
+
 function getTagCounts(hero) {
   const counts = {};
   for (const [id, lv] of Object.entries(hero.skillLevels || {})) {
@@ -985,13 +1000,93 @@ function calcDamage(hero, monster, skill = null) {
   return { damage: Math.max(1, Math.floor(damage)), isCrit, element, aoe };
 }
 
-function calcMonsterDamage(monster, hero) {
-  const stats = calcHeroStats(hero);
+function summarizeHeroDebuffs(debuffs) {
+  const acc = { dmgDown: 0, resDown: 0, slow: 0, physTaken: 0, armorDown: 0, leech: 0 };
+  for (const d of Object.values(debuffs || {})) {
+    if (!d || (d.t || 0) <= 0) continue;
+    acc.dmgDown = Math.max(acc.dmgDown, d.dmgDown || 0);
+    acc.resDown = Math.max(acc.resDown, d.resDown || 0);
+    acc.slow = Math.max(acc.slow, d.slow || 0);
+    acc.physTaken = Math.max(acc.physTaken, d.physTaken || 0);
+    acc.armorDown = Math.max(acc.armorDown, d.armorDown || 0);
+    acc.leech = Math.max(acc.leech, d.leech || 0);
+  }
+  acc.dmgDown = Math.min(0.55, acc.dmgDown);
+  acc.resDown = Math.min(0.45, acc.resDown);
+  acc.slow = Math.min(0.6, acc.slow);
+  acc.physTaken = Math.min(0.4, acc.physTaken);
+  return acc;
+}
+
+function applyHeroDebuffsToStats(stats, debuffs) {
+  if (!stats) return stats;
+  const d = summarizeHeroDebuffs(debuffs);
+  stats.damage = Math.max(1, Math.floor(stats.damage * (1 - d.dmgDown)));
+  stats.allRes = Math.max(0, (stats.allRes || 0) - d.resDown);
+  stats.attackInterval = (stats.attackInterval || 1.2) * (1 + d.slow);
+  stats.attacksPerSec = 1 / Math.max(0.2, stats.attackInterval);
+  stats._debuff = d;
+  return stats;
+}
+
+function isBossMonster(m) {
+  return !!(m && (m.isBoss || m.kind === 'actBoss' || m.kind === 'riftBoss' || m.kind === 'rareBoss' || m.kind === 'boss'));
+}
+
+function isSpecialMonster(m) {
+  return isBossMonster(m) || m?.kind === 'rare' || m?.kind === 'hidden';
+}
+
+function monsterSpeedMult(m) {
+  return isBossMonster(m) ? BOSS_SPEED_MULT : 1;
+}
+
+function monsterAttackInterval(m) {
+  let t = m?.eliteAffixes?.some(a => a.speed) ? 1.9 : (m?.ranged ? 2.45 : 2.7);
+  t /= monsterSpeedMult(m);
+  return Math.max(0.22, t);
+}
+
+function getMonsterSkillDef(slot) {
+  if (!slot) return null;
+  return SKILLS[slot.classId]?.[slot.id] || null;
+}
+
+function pickMonsterSkillSlots(pool, n) {
+  const p = (pool || []).slice();
+  const out = [];
+  const count = Math.min(Math.max(0, n), p.length);
+  for (let i = 0; i < count; i++) {
+    const j = Math.floor(Math.random() * p.length);
+    const ref = p.splice(j, 1)[0];
+    out.push({ classId: ref.classId, id: ref.id, cdLeft: 0.35 + Math.random() * 1.6 });
+  }
+  return out;
+}
+
+function attachMonsterKit(m) {
+  if (!m || m.kind === 'goblin' || !isSpecialMonster(m)) return m;
+  const dmgN = isBossMonster(m) || m.kind === 'hidden' ? 2 : 1;
+  const skills = pickMonsterSkillSlots(MONSTER_DMG_SKILL_REFS, dmgN);
+  if (isBossMonster(m)) {
+    const debN = m.kind === 'rareBoss' ? 1 : 2;
+    skills.push(...pickMonsterSkillSlots(MONSTER_DEBUFF_SKILL_REFS, debN));
+  }
+  m.monsterSkills = skills;
+  if (isBossMonster(m)) m.attackTimer = Math.min(m.attackTimer || 1, 0.35 + Math.random() * 0.25);
+  return m;
+}
+
+function calcMonsterDamage(monster, hero, statsOverride) {
+  const stats = statsOverride || calcHeroStats(hero);
+  const deb = stats._debuff || summarizeHeroDebuffs(typeof combatState !== 'undefined' ? combatState?.heroDebuffs : null);
   let dmg = monster.damage;
   const armorFactor = stats.armor / (stats.armor + 50 * monster.level);
   dmg *= (1 - armorFactor);
   dmg *= (1 - stats.damageReduction);
   dmg *= (1 - stats.allRes * 0.5);
+  if (deb.physTaken) dmg *= 1 + deb.physTaken;
+  if (deb.armorDown) dmg *= 1 + deb.armorDown * 0.55;
   if (monster.curse?.dmgDown) dmg *= (1 - monster.curse.dmgDown);
   if (stats.enemyDmgDown) dmg *= (1 - Math.min(0.7, stats.enemyDmgDown));
   return Math.max(1, Math.floor(dmg));
@@ -1019,6 +1114,7 @@ function applyWorldMonsterMult(m, mult) {
   m.hp = Math.max(1, Math.floor(m.hp * w));
   m.maxHp = Math.max(1, Math.floor((m.maxHp || m.hp) * w));
   m.damage = Math.max(1, Math.floor(m.damage * w));
+  if (m.baseDamage) m.baseDamage = Math.max(1, Math.floor(m.baseDamage * w));
   if (m.armor) m.armor = Math.floor(m.armor * w);
   return m;
 }
@@ -1072,17 +1168,19 @@ function createMonster(map, opts = {}) {
     const dmgScale = to.damage / Math.max(1, from.damage);
     const armScale = to.armor / Math.max(1, from.armor || 1);
     const hp = Math.floor(boss.hp * hpScale * (forceRareBoss ? 1.4 : 1));
-    return applyWorldMonsterMult({
+    const dmg = Math.floor(boss.damage * dmgScale * (forceRareBoss ? 1.25 : 1) * CHAPTER_BOSS_DMG_MULT);
+    return attachMonsterKit(applyWorldMonsterMult({
       name: forceRareBoss ? `稀有·${boss.name}` : boss.name,
       level: mapLv, hp, maxHp: hp,
-      damage: Math.floor(boss.damage * dmgScale * (forceRareBoss ? 1.25 : 1)),
+      damage: dmg,
+      baseDamage: dmg,
       armor: Math.floor(boss.armor * armScale),
       resistances: { ...boss.resistances },
       isBoss: true, bossId, kind, race: boss.race, phase: 1,
       eliteAffixes: forceRareBoss ? rollEliteAffixes(2) : [],
       iso: { x: 8.2, y: 4.2 }, attackTimer: 1.8,
       ranged: false, attackRange: 1.5, moveSpeed: 1.8,
-    }, opts.worldMult);
+    }, opts.worldMult));
   }
 
   const kind = opts.forceKind || rollKind(clearFactor);
@@ -1125,7 +1223,7 @@ function createMonster(map, opts = {}) {
     dmg *= diff;
     armor *= diff;
   }
-  return applyWorldMonsterMult({
+  return attachMonsterKit(applyWorldMonsterMult({
     name, level,
     hp: Math.floor(hp), maxHp: Math.floor(hp),
     damage: Math.floor(dmg), armor: Math.floor(armor),
@@ -1138,7 +1236,7 @@ function createMonster(map, opts = {}) {
     ranged,
     attackRange: ranged ? 4.4 + Math.random() * 0.6 : 1.15,
     moveSpeed: ranged ? 1.55 : 2.25,
-  }, opts.worldMult);
+  }, opts.worldMult));
 }
 
 function getSetStatus(equipment) {
@@ -1253,7 +1351,8 @@ function estimateBossWinRate(hero, boss) {
   const timeToKill = (boss.maxHp || boss.hp) / Math.max(dps, 1);
   const stats = calcHeroStats(hero);
   const monsterDmg = boss.damage * (1 - stats.armor / (stats.armor + 50 * boss.level));
-  const timeToDie = (ehp / Math.max(monsterDmg, 1)) * 1.5;
+  const atkIv = monsterAttackInterval(boss);
+  const timeToDie = (ehp / Math.max(monsterDmg / atkIv, 1)) * 1.5;
   if (timeToKill <= timeToDie * 0.5) return Math.round(Math.min(95, 60 + ((timeToDie - timeToKill) / timeToDie) * 40));
   if (timeToKill <= timeToDie) return Math.round(30 + ((timeToDie - timeToKill) / timeToDie) * 50);
   return Math.max(5, Math.round(30 * timeToDie / timeToKill));
@@ -1334,7 +1433,7 @@ function createRiftGuardian(map, opts = {}) {
   const armScale = to.armor / Math.max(1, from.armor || 1);
   const hp = Math.floor(baal.hp * diff * hpScale);
   const dmg = Math.floor(baal.damage * diff * dmgScale);
-  return applyWorldMonsterMult({
+  return attachMonsterKit(applyWorldMonsterMult({
     name: '秘境守护者',
     level,
     hp, maxHp: hp,
@@ -1353,7 +1452,7 @@ function createRiftGuardian(map, opts = {}) {
     attackRange: 1.5,
     moveSpeed: 1.8,
     exp: 120 + f * 18,
-  }, opts.worldMult);
+  }, opts.worldMult));
 }
 
 function getMap(id) {
@@ -1392,6 +1491,14 @@ function collectHudBuffs(hero, buffs) {
     const parts = skillLevelParts(hero, id, stats);
     const lv = parts.base > 0 && parts.bonus > 0 ? `${parts.base}+${parts.bonus}` : (b.lv || parts.base || 1);
     out.push({ id, name: b.name, kind: b.kind || 'buff', lv, time: `${Math.ceil(b.t)}s` });
+  }
+  const live = typeof combatState !== 'undefined' ? combatState : null;
+  for (const d of Object.values(live?.heroDebuffs || {})) {
+    if (!d || (d.t || 0) <= 0) continue;
+    out.push({ id: d.id, name: d.name, kind: 'debuff', lv: '诅咒', time: `${Math.ceil(d.t)}s` });
+  }
+  if ((live?.heroStun || 0) > 0) {
+    out.push({ id: 'heroStun', name: '眩晕', kind: 'debuff', lv: '', time: `${live.heroStun.toFixed(1)}s` });
   }
   return out;
 }

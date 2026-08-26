@@ -540,6 +540,7 @@ function loadGame() {
       syncNamedItemPower(it);
       ensureItemAffixes(it, 1);
     }
+    migrateOrbOffhands(state);
     return state;
   } catch {
     return createNewGame();
@@ -547,15 +548,61 @@ function loadGame() {
 }
 
 function inferWeaponClass(item) {
-  if (!item || item.slot !== 'weapon') return null;
+  if (!item) return null;
+  if (isOrbItem(item)) return null;
+  if (item.slot !== 'weapon') return null;
   if (item.weaponClass) return item.weaponClass;
   const n = item.name || '';
   if (/弓|弩/.test(n)) return 'bow';
   if (/标枪|投枪/.test(n)) return 'javelin';
   if (/权杖/.test(n)) return 'melee';
-  if (/杖|珠|图腾|法器|魔杖/.test(n)) return 'caster';
+  if (/杖|图腾|法器|魔杖/.test(n)) return 'caster';
   if (/爪|拳刃/.test(n)) return 'claw';
   return 'melee';
+}
+
+function isOrbItem(item) {
+  if (!item) return false;
+  if (item.offhandClass === 'orb') return true;
+  const n = item.name || '';
+  if (/法珠/.test(n)) return true;
+  if (item.icon === 'orb' && !/杖/.test(n)) return true;
+  return false;
+}
+
+function convertOrbToOffhand(item) {
+  if (!item || !isOrbItem(item)) return item;
+  item.slot = 'offhand';
+  item.offhandClass = 'orb';
+  if (item.weaponClass) delete item.weaponClass;
+  return item;
+}
+
+function migrateOrbOffhands(state) {
+  if (!state) return;
+  const bags = [state.inventory];
+  if (state.town?.warehouse) bags.push(state.town.warehouse);
+  for (const h of Object.values(state.heroes || {})) {
+    if (!h) continue;
+    if (h.inventory) bags.push(h.inventory);
+    convertOrbToOffhand(h.equipment?.offhand);
+    const wep = h.equipment?.weapon;
+    if (wep && isOrbItem(wep)) {
+      convertOrbToOffhand(wep);
+      if (!h.equipment.offhand) {
+        h.equipment.offhand = wep;
+        delete h.equipment.weapon;
+      } else {
+        h.inventory = h.inventory || [];
+        h.inventory.push(wep);
+        delete h.equipment.weapon;
+      }
+    }
+  }
+  for (const bag of bags) {
+    if (!Array.isArray(bag)) continue;
+    for (const it of bag) convertOrbToOffhand(it);
+  }
 }
 
 function canDualWield(hero) {
@@ -950,8 +997,20 @@ function getCurrentMap(hero, state) {
   return state ? withDiffLevels(map, getWorldDiff(state, hero)) : map;
 }
 
-function tryAutoNextMap(state, hero) {
+function tryAutoNextMap(state, hero, unlockedDiff) {
   if (!state || state.autoNextMap === false || !hero) return null;
+  if (unlockedDiff?.id && diffUnlocked(state, unlockedDiff.id, hero) && hero.diffId !== unlockedDiff.id) {
+    const r = setWorldDiff(state, unlockedDiff.id, hero);
+    if (r.ok && !r.same) {
+      hero.holdMap = false;
+      const map = getCurrentMap(hero, state);
+      if (map && !map.isRift) {
+        campaignOf(state, hero).mapsEntered[map.id] = true;
+        campaignOf(state, hero).lastMap = map.id;
+      }
+      return { name: `${r.diff.name} · ${map?.name || '荒芜平原'}`, diff: r.diff, map };
+    }
+  }
   if (hero.holdMap) return null;
   if (hero.currentMap === 'rift') return null;
   const map = getMap(hero.currentMap);
@@ -1745,6 +1804,7 @@ function pickLootBase(slot, charId) {
   const prefer = list.filter(b => {
     if (b.reqClass === charId) return true;
     if (slot === 'weapon' && (CHARACTERS[charId]?.weaponClasses || []).includes(b.weaponClass)) return true;
+    if (slot === 'offhand' && charId === 'sorceress' && b.offhandClass === 'orb') return true;
     return false;
   });
   if (prefer.length && Math.random() < 0.64) return pickFrom(prefer);
@@ -2025,7 +2085,6 @@ function salvagePreview(item) {
   const ilvl = item.itemLevel || 1;
   const affn = item.affixes?.length || 0;
   const base = Math.max(1, Math.round((rank * 1.1 + ilvl / 10) * (1 + affn * 0.06)));
-  const gold = Math.floor(sellValue(item) * 0.4);
   const g = salvageSlotGroup(item);
   let metal = 0;
   let cloth = 0;
@@ -2039,14 +2098,12 @@ function salvagePreview(item) {
   } else {
     crystal = base;
   }
-  return { gold, metal, cloth, crystal, shards: metal };
+  return { gold: 0, metal, cloth, crystal, shards: metal };
 }
 
 function salvageItem(state, item, hero) {
   const r = salvagePreview(item);
   gainMats(state, r, hero);
-  const h = hero || getActiveHero(state);
-  h.gold = (h.gold || 0) + r.gold;
   return r;
 }
 
@@ -2137,7 +2194,7 @@ function formatCostText(c) {
 
 function formatSalvageLog(prefix, r) {
   const mats = formatMatBits(r);
-  return `${prefix} +${formatCompactNum(r.gold || 0)}金${mats ? ' +' + mats : ''}`;
+  return mats ? `${prefix} +${mats}` : prefix;
 }
 
 function ensureMats(state, hero) {
@@ -2378,8 +2435,10 @@ function ringSlotForEquip(hero, preferred) {
 }
 
 function inferOffhandClass(item) {
-  if (!item || item.slot !== 'offhand') return null;
+  if (!item) return null;
   if (item.offhandClass) return item.offhandClass;
+  if (isOrbItem(item)) return 'orb';
+  if (item.slot !== 'offhand') return null;
   const n = item.name || '';
   if (/箭袋|箭壶|箭囊|箭筒/.test(n)) return 'quiver';
   return 'shield';
@@ -2390,6 +2449,12 @@ function offhandFitsWeapon(weapon, offhand) {
   if (offhand.slot === 'weapon') return { ok: false, reason: '该部位不能装备第二把武器' };
   const oc = inferOffhandClass(offhand);
   const wc = inferWeaponClass(weapon);
+  if (oc === 'orb') {
+    if (!weapon) return { ok: true };
+    if (wc === 'caster') return { ok: true };
+    const have = WEAPON_CLASS_NAMES[wc] || weapon.name;
+    return { ok: false, reason: `法珠需搭配法杖（当前：${have}）` };
+  }
   if (oc === 'quiver') {
     if (wc === 'bow') return { ok: true };
     const have = weapon ? (WEAPON_CLASS_NAMES[wc] || weapon.name) : '未装备武器';
@@ -2442,7 +2507,7 @@ function itemFitsSlot(item, slot, hero) {
   if (!item || !slot) return false;
   if (slot === 'ring1' || slot === 'ring2') return isRingItem(item);
   if (slot === 'offhand') {
-    if (item.slot === 'offhand') return true;
+    if (item.slot === 'offhand' || isOrbItem(item)) return true;
     return !!(hero && isDualWieldWeapon(hero, item));
   }
   if (slot === 'weapon' && inferOffhandClass(item) === 'quiver') return true;
@@ -2678,6 +2743,7 @@ function mapRecommendScore(map, state) {
     const to = monsterStats(lv);
     hp = boss.hp * (to.hp / Math.max(1, from.hp)) * w * rift;
     dmg = boss.damage * (to.damage / Math.max(1, from.damage)) * w * rift;
+    if (!riftBoss) dmg *= (typeof CHAPTER_BOSS_DMG_MULT === 'number' ? CHAPTER_BOSS_DMG_MULT : 10);
   } else {
     const ms = monsterStats(lv);
     const pack = mapPackRange(map, typeof getWorldDiff === 'function' && state

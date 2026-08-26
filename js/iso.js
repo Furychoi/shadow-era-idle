@@ -18,11 +18,20 @@ const TILE_PAL = {
   sewer: ['#2a3228', '#3a4a38', '#1a2018'],
 };
 
-function isoToScreen(ix, iy, ox, oy) {
+let _tw = TILE_W;
+let _th = TILE_H;
+
+function isoToScreen(ix, iy, ox, oy, tw = _tw, th = _th) {
   return {
-    x: ox + (ix - iy) * (TILE_W / 2),
-    y: oy + (ix + iy) * (TILE_H / 2),
+    x: ox + (ix - iy) * (tw / 2),
+    y: oy + (ix + iy) * (th / 2),
   };
+}
+
+function screenToIso(sx, sy, ox, oy, tw = _tw, th = _th) {
+  const dx = (sx - ox) / (tw / 2);
+  const dy = (sy - oy) / (th / 2);
+  return { x: (dx + dy) / 2, y: (dy - dx) / 2 };
 }
 
 class IsoField {
@@ -335,22 +344,46 @@ class IsoField {
   }
 
   draw(heroChar) {
-    if (!this.ctx) return;
-    if (!this.w) this.resize();
+    if (!this.ctx || !this.canvas) return;
+    const cw = this.canvas.clientWidth || 640;
+    const ch = this.canvas.clientHeight || 420;
+    if (!this.w || cw !== this.w || ch !== this.h) this.resize();
     if (!this.ctx) return;
     const ctx = this.ctx;
     const w = this.w;
     const h = this.h;
-    ctx.fillStyle = '#08080e';
+    if (w < 8 || h < 8) return;
+    const pal = TILE_PAL[this.tiles] || TILE_PAL.dirt;
+    ctx.fillStyle = pal[2] || '#08080e';
     ctx.fillRect(0, 0, w, h);
     ctx.imageSmoothingEnabled = false;
 
+    const playW = GRID_N * TILE_W;
+    const playH = GRID_N * TILE_H;
+    const scale = Math.max(w / playW, h / playH) || 1;
+    _tw = TILE_W * scale;
+    _th = TILE_H * scale;
     const ox = w / 2;
-    const oy = h * 0.08;
-    const pal = TILE_PAL[this.tiles] || TILE_PAL.dirt;
+    const oy = (h - GRID_N * _th) / 2;
 
-    for (let y = 0; y < GRID_N; y++) {
-      for (let x = 0; x < GRID_N; x++) {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const [sx, sy] of [[0, 0], [w, 0], [0, h], [w, h], [w / 2, 0], [w / 2, h], [0, h / 2], [w, h / 2]]) {
+      const p = screenToIso(sx, sy, ox, oy);
+      minX = Math.min(minX, Math.floor(p.x) - 3);
+      maxX = Math.max(maxX, Math.ceil(p.x) + 3);
+      minY = Math.min(minY, Math.floor(p.y) - 3);
+      maxY = Math.max(maxY, Math.ceil(p.y) + 3);
+    }
+    minX -= 8;
+    maxX += 8;
+    minY -= 8;
+    maxY += 8;
+
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
         const s = isoToScreen(x, y, ox, oy);
         const shade = (x + y) % 2 === 0 ? pal[0] : pal[1];
         drawTile(ctx, s.x, s.y, shade, pal[2]);
@@ -683,9 +716,9 @@ class IsoField {
 function drawTile(ctx, x, y, fill, edge) {
   ctx.beginPath();
   ctx.moveTo(x, y);
-  ctx.lineTo(x + TILE_W / 2, y + TILE_H / 2);
-  ctx.lineTo(x, y + TILE_H);
-  ctx.lineTo(x - TILE_W / 2, y + TILE_H / 2);
+  ctx.lineTo(x + _tw / 2, y + _th / 2);
+  ctx.lineTo(x, y + _th);
+  ctx.lineTo(x - _tw / 2, y + _th / 2);
   ctx.closePath();
   ctx.fillStyle = fill;
   ctx.fill();

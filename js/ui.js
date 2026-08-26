@@ -92,7 +92,7 @@ function salvageSum(items) {
 
 function salvageBtnText(items) {
   const s = salvageSum(items);
-  return `分解 ${formatCostText({ gold: Math.floor(s.gold), metal: s.metal, cloth: s.cloth, crystal: s.crystal })}`;
+  return `分解 ${formatCostText({ metal: s.metal, cloth: s.cloth, crystal: s.crystal })}`;
 }
 
 function ownedAmount(key) {
@@ -940,6 +940,9 @@ function resetFieldForZone() {
   combatState.monsters = [];
   combatState.target = null;
   combatState.spawnTimer = 0.2;
+  combatState.heroDebuffs = {};
+  combatState.heroStun = 0;
+  combatState.heroDots = [];
 }
 
 function campSig() {
@@ -1047,6 +1050,7 @@ function inferItemIcon(item) {
   const n = item.name || '';
   const oh = inferOffhandClass(item);
   if (oh === 'quiver') return 'quiver';
+  if (oh === 'orb' || isOrbItem(item)) return 'orb';
   if (oh === 'shield') return 'shield';
   if (item.slot === 'weapon') {
     const wc = inferWeaponClass(item);
@@ -1228,29 +1232,54 @@ function renderCampAttrs(hero) {
   const labelEl = document.getElementById('attr-page-label');
   if (titleEl) titleEl.textContent = '效率｜属性';
   if (labelEl) labelEl.textContent = `${attrPage + 1}/${ATTR_PAGES.length}`;
+  const pageKey = `${attrPage}|${stats.resName}`;
   if (attrPage === 0) {
-    const cell = (label, value, id) =>
-      `<div class="eff-item"><span>${label}</span><span${id ? ` id="${id}"` : ''}>${value}</span></div>`;
-    el.innerHTML = `<div class="eff-strip">
-      ${cell('DPS', formatEffNum(calcDPS(hero)))}
-      ${cell('EHP', formatEffNum(calcEHP(hero, (map.levelMin + map.levelMax) / 2)))}
-      ${cell('击杀/分', formatEffNum(killsPerMinute(hero, map)), 'stat-kpm')}
-      ${cell('经验/时', formatEffNum(expPerHour(hero, map)), 'stat-eph')}
-      ${cell('攻速', `${stats.attacksPerSec.toFixed(2)}/s`)}
-      ${cell('攻击距离', stats.attackRange.toFixed(1))}
-      ${cell('暴击', `${Math.round(stats.critRate * 100)}%`)}
-      ${cell('护甲', formatEffNum(stats.armor))}
-      ${cell(stats.resName, `${Math.floor(hero.currentRes || 0)}/${stats.maxRes}`)}
-      ${cell('生命药', gameState.hpPotions || 0, 'stat-hp-pots')}
-      ${cell('魔力药', gameState.manaPotions || 0, 'stat-mana-pots')}
-      ${cell('技能点', hero.skillPoints || 0)}
-    </div>`;
+    const cells = [
+      ['DPS', formatEffNum(calcDPS(hero)), ''],
+      ['EHP', formatEffNum(calcEHP(hero, (map.levelMin + map.levelMax) / 2)), ''],
+      ['击杀/分', formatEffNum(killsPerMinute(hero, map)), 'stat-kpm'],
+      ['经验/时', formatEffNum(expPerHour(hero, map)), 'stat-eph'],
+      ['攻速', `${stats.attacksPerSec.toFixed(2)}/s`, ''],
+      ['攻击距离', stats.attackRange.toFixed(1), ''],
+      ['暴击', `${Math.round(stats.critRate * 100)}%`, ''],
+      ['护甲', formatEffNum(stats.armor), ''],
+      [stats.resName, `${Math.floor(hero.currentRes || 0)}/${stats.maxRes}`, ''],
+      ['生命药', String(gameState.hpPotions || 0), 'stat-hp-pots'],
+      ['魔力药', String(gameState.manaPotions || 0), 'stat-mana-pots'],
+      ['技能点', String(hero.skillPoints || 0), ''],
+    ];
+    if (el.dataset.key !== pageKey) {
+      el.dataset.key = pageKey;
+      el.innerHTML = `<div class="eff-strip">${cells.map(([label, value, id]) =>
+        `<div class="eff-item"><span>${label}</span><span${id ? ` id="${id}"` : ''}>${value}</span></div>`
+      ).join('')}</div>`;
+    } else {
+      el.querySelectorAll('.eff-item').forEach((item, i) => {
+        const row = cells[i];
+        if (!row) return;
+        const lab = item.querySelector('span:first-child');
+        const val = item.querySelector('span:last-child');
+        if (lab) lab.textContent = row[0];
+        if (val) val.textContent = row[1];
+      });
+    }
     renderStatsPanel();
     return;
   }
-  el.innerHTML = pages[attrPage].map(([k, v]) =>
-    `<div class="attr-row"><span>${k}</span><span class="attr-val">${v}</span></div>`
-  ).join('');
+  const rows = pages[attrPage] || [];
+  if (el.dataset.key !== pageKey) {
+    el.dataset.key = pageKey;
+    el.innerHTML = rows.map(([k, v]) =>
+      `<div class="attr-row"><span>${k}</span><span class="attr-val">${v}</span></div>`
+    ).join('');
+    return;
+  }
+  el.querySelectorAll('.attr-row').forEach((row, i) => {
+    const data = rows[i];
+    if (!data) return;
+    const valEl = row.querySelector('.attr-val');
+    if (valEl) valEl.textContent = data[1];
+  });
 }
 
 function itemIconHtml(item, extraClass = '', blocked = false) {
@@ -1630,17 +1659,38 @@ function renderCampGear() {
   }
 }
 
+function itemTypeLabel(item) {
+  if (!item) return '';
+  if (isOrbItem(item) || inferOffhandClass(item) === 'orb') return '法珠';
+  const oh = inferOffhandClass(item);
+  if (oh === 'quiver') return '箭袋';
+  if (oh === 'shield') return '盾';
+  const w = inferWeaponClass(item);
+  if (w === 'caster') {
+    const n = item.name || '';
+    if (/图腾/.test(n) || item.icon === 'totem') return '图腾';
+    if (/魔杖/.test(n) || item.icon === 'wand') return '魔杖';
+    return '法杖';
+  }
+  if (w) return WEAPON_CLASS_NAMES[w] || w;
+  return SLOT_NAMES[item.slot] || item.slot;
+}
+
+function itemDiffLabel(item) {
+  if (!item?.diffId) return '';
+  return getDiffById(item.diffId).name || '';
+}
+
 function itemCardHtml(item, tag, opts = {}) {
   if (!item) return `<div class="cmp-col"><div class="hint">${tag || ''}：空部位</div></div>`;
   const vs = opts.vs || null;
   const { q, affixHtml, morphStr, setStr } = itemLine(item, opts);
   const hero = opts.hero || getActiveHero(gameState);
   const block = tag !== '已装备' && tag !== '当前' && equipBlockReason(hero, item);
-  const wclass = inferWeaponClass(item);
-  const oh = inferOffhandClass(item);
   const req = itemClassId(item);
-  const reqTxt = req && CHARACTERS[req] ? ` · 仅限${CHARACTERS[req].name}` : '';
-  const wtxt = wclass ? ` · ${WEAPON_CLASS_NAMES[wclass]}` : (oh === 'quiver' ? ' · 箭袋（配弓/弩）' : oh === 'shield' ? ' · 盾' : '');
+  const reqTxt = req && CHARACTERS[req] ? `仅限${CHARACTERS[req].name}` : '无限制';
+  const typeTxt = itemTypeLabel(item);
+  const diff = itemDiffLabel(item);
   const dmg = shownBase(item, item.baseDamage);
   const arm = shownBase(item, item.armor);
   const ias = Math.round((item.attackSpeed || 0) * itemEnhanceMult(item) * 100);
@@ -1649,7 +1699,9 @@ function itemCardHtml(item, tag, opts = {}) {
   const vias = vs ? Math.round((vs.attackSpeed || 0) * itemEnhanceMult(vs) * 100) : 0;
   const enh = item.enhance || 0;
   const cap = itemEnhanceCapPct(item.quality);
-  const enhTxt = enh ? ` · 强化+${enh}/10（+${Math.round(itemEnhanceBonus(item) * 100)}%）` : (cap ? ' · 可强化' : '');
+  const enhTxt = enh
+    ? `强化 +${enh}/10（+${Math.round(itemEnhanceBonus(item) * 100)}%）`
+    : (cap ? '未强化' : '不可强化');
   const dmgLine = item.baseDamage
     ? `<div class="stat-line">基础伤害 ${dmg}${vs ? deltaSpan(dmg - vdmg) : ''}</div>` : '';
   const armLine = item.armor
@@ -1657,13 +1709,29 @@ function itemCardHtml(item, tag, opts = {}) {
   const iasLine = item.attackSpeed
     ? `<div class="stat-line">攻速 +${ias}%${vs ? deltaSpan(ias - vias, '%') : ''}</div>` : '';
   const lost = vs ? lostAffixesHtml(item, vs) : '';
+  const s = scoreItem(item, hero);
+  const o = vs ? scoreItem(vs, hero) : null;
+  const scoreBlock = !s.usable && !vs
+    ? `<div class="gear-score blocked">不可用</div>`
+    : `<div class="inspect-scores">
+        <div class="gs-line atk"><span class="gs-k">攻</span><span class="gs-g g-${s.atkGrade}">${s.atkGrade}</span><span class="gs-n">${s.atk}${o ? deltaSpan(s.atk - o.atk) : ''}</span></div>
+        <div class="gs-line surv"><span class="gs-k">生</span><span class="gs-g g-${s.survGrade}">${s.survGrade}</span><span class="gs-n">${s.surv}${o ? deltaSpan(s.surv - o.surv) : ''}</span></div>
+      </div>`;
   const body = `
     ${tag ? `<div class="cmp-tag">${tag}</div>` : ''}
-    ${itemIconHtml(item, opts.compact ? '' : 'lg', block)}
-    <div class="inspect-name ${isUniqueItem(item) ? 'unique-name' : ''}" style="color:${q.color}">${item.locked ? '锁 ' : ''}${isAncientItem(item) ? '远古 · ' : ''}${itemDisplayName(item)}</div>
-    <div class="quality-tag" style="color:${q.color}">${q.name} · ${SLOT_NAMES[item.slot] || item.slot}${wtxt}${reqTxt} · ${item.itemLevel || 1}级${enhTxt}</div>
+    <div class="inspect-head">
+      ${itemIconHtml(item, opts.compact ? '' : 'lg', block)}
+      ${scoreBlock}
+    </div>
+    <div class="inspect-name ${isUniqueItem(item) ? 'unique-name' : ''}" style="color:${q.color}">${item.locked ? '锁 ' : ''}${isAncientItem(item) ? '远古 · ' : ''}${item.name || ''}${diff ? ` - ${diff}` : ''}</div>
+    <div class="inspect-meta" style="color:${q.color}">
+      <span>${q.name}</span>
+      <span>${typeTxt}</span>
+      <span>${reqTxt}</span>
+      <span>装备等级 ${item.itemLevel || 1}</span>
+    </div>
+    <div class="inspect-enh">${enhTxt}</div>
     ${block ? `<div class="equip-block">不可装备：${block}</div>` : ''}
-    ${gearScoreHtml(item, hero, !!opts.compact, vs)}
     ${dmgLine}${armLine}${iasLine}
     ${affixHtml || '<div class="stat-line dim">无词缀</div>'}
     ${lost}
@@ -2060,6 +2128,8 @@ function renderCombatHud() {
     hpText.textContent = `${Math.floor(m.hp)} / ${m.maxHp}`;
     const kn = { normal: '普通', elite: '精英', rare: '稀有', hidden: '隐藏', goblin: '宝藏哥布林', rareBoss: '稀有 Boss', actBoss: '章节 Boss', riftBoss: '秘境守护', boss: 'Boss' }[m.kind] || '';
     kindEl.textContent = kn + (m.ranged ? ' · 远程' : m.flee ? ' · 逃跑中' : '');
+    const sk = (m.monsterSkills || []).map(s => getMonsterSkillDef(s)?.name).filter(Boolean);
+    if (sk.length) kindEl.textContent += ` · ${sk.slice(0, 3).join('/')}`;
     kindEl.style.color = m.kind === 'goblin' ? '#ffd24a'
       : m.kind === 'hidden' ? '#c080ff'
       : m.kind === 'riftBoss' ? '#ff7a6a'
@@ -2144,19 +2214,19 @@ function renderCombatSkills(hero) {
     let st = '就绪';
     let cls = 'ready';
     if (!on) {
-      st = '已停用';
+      st = '停用';
       cls = 'off';
     } else if (hero.isDead) {
       st = '倒地';
       cls = 'off';
     } else if (channeling) {
-      st = `释放 ${Math.ceil(ch.t)}s`;
+      st = `${Math.ceil(ch.t)}s`;
       cls = 'cast';
     } else if (remain > 0.05) {
-      st = `CD ${remain.toFixed(1)}s`;
+      st = `${remain.toFixed(1)}s`;
       cls = 'cd';
     } else if (!resOk) {
-      st = `${stats.resName}不足`;
+      st = '不足';
       cls = 'oom';
     }
     btn.className = `csk ${cls}`;
@@ -2188,29 +2258,55 @@ function renderStatsPanel() {
   if (manaEl) manaEl.textContent = gameState.manaPotions || 0;
 }
 
+function isLootLog(entry) {
+  return entry?.type === 'loot';
+}
+
+function logEntryHtml(entries) {
+  if (!entries.length) return '<div class="log-entry muted">暂无记录</div>';
+  return entries.map(entry => `<div class="log-entry ${entry.type}">${entry.text}</div>`).join('');
+}
+
+function paintLogPane(el, html) {
+  if (!el) return;
+  if (el.dataset.sig === html) return;
+  el.dataset.sig = html;
+  el.innerHTML = html;
+}
+
 function renderLog() {
-  const logEl = document.getElementById('combat-log');
-  if (!combatState?.log?.length) return;
-  logEl.innerHTML = combatState.log.slice(-24).reverse().map(entry => {
-    return `<div class="log-entry ${entry.type}">${entry.text}</div>`;
-  }).join('');
+  const log = combatState?.log || [];
+  const combat = log.filter(e => !isLootLog(e)).slice(-24).reverse();
+  const loot = log.filter(isLootLog).slice(-24).reverse();
+  paintLogPane(document.getElementById('combat-log'), logEntryHtml(combat));
+  paintLogPane(document.getElementById('loot-log'), logEntryHtml(loot));
 }
 
 function fillMapScore(btn, map, heroScore) {
   if (!btn || !map) return;
-  let el = btn.querySelector('.map-score');
-  if (!el) {
-    el = document.createElement('span');
-    el.className = 'map-score';
-    const hint = btn.querySelector('.map-hint');
-    if (hint) btn.insertBefore(el, hint);
-    else btn.appendChild(el);
-  }
+  const el = btn.querySelector('.map-score');
+  if (!el) return;
   const rec = mapRecommendScore(map, gameState);
   el.textContent = `推荐 ${formatCompactNum(rec)}`;
   el.classList.toggle('ok', heroScore >= rec);
   el.classList.toggle('mid', heroScore >= rec * 0.75 && heroScore < rec);
   el.classList.toggle('low', heroScore < rec * 0.75);
+}
+
+function mapCardMarkup(extraClass = '', attrs = '') {
+  return `<button type="button" class="map-btn${extraClass}" ${attrs}>
+    <div class="map-btn-row">
+      <span class="map-name"></span>
+      <span class="map-status"></span>
+    </div>
+    <div class="map-btn-row map-rec-row">
+      <span class="map-lv"></span>
+      <span class="map-score"></span>
+    </div>
+    <div class="map-prog"><div class="map-prog-fill"></div><span class="map-prog-lab"></span></div>
+    <span class="map-new-tag" hidden>新解锁</span>
+    <span class="map-new-dot" hidden></span>
+  </button>`;
 }
 
 function renderMapSelect() {
@@ -2293,20 +2389,10 @@ function renderMapSelect() {
     const rmap = withDiffLevels(makeRiftMap(hero.riftFloor), getWorldDiff(gameState, hero));
     const locked = !riftUnlocked(gameState, hero);
     const p = mapClearProgress(gameState, rmap, hero);
-    if (container.dataset.act !== '6' || !container.querySelector('.rift-pick')) {
-      container.dataset.act = '6';
+    if (container.dataset.act !== '6v3' || !container.querySelector('.rift-pick')) {
+      container.dataset.act = '6v3';
       container.innerHTML = `<div class="rift-pick">
-        <button type="button" class="map-btn boss" data-map="rift">
-          <div class="map-btn-row">
-            <span class="map-name"></span>
-            <span class="map-lv"></span>
-          </div>
-          <span class="map-score"></span>
-          <div class="map-prog"><div class="map-prog-fill"></div></div>
-          <span class="map-hint"></span>
-          <span class="map-new-tag" hidden>新解锁</span>
-          <span class="map-new-dot" hidden></span>
-        </button>
+        ${mapCardMarkup(' boss', 'data-map="rift"')}
         <div class="rift-floor-bar">
           <button type="button" class="rift-floor-btn" data-rift-dir="-1" aria-label="上一层">‹</button>
           <span class="rift-floor-lab"></span>
@@ -2322,11 +2408,12 @@ function renderMapSelect() {
     btn.classList.toggle('active', hero.currentMap === 'rift');
     btn.classList.toggle('map-new', isNew);
     btn.querySelector('.map-name').textContent = `${rmap.name}${hero.riftBest ? ` · 最高 ${hero.riftBest} 层` : ''}`;
+    btn.querySelector('.map-status').textContent = locked ? '未解锁' : (hero.riftBossReady ? '守护者就绪' : '进行中');
+    btn.title = locked ? '需开放世界之石要塞' : '';
     btn.querySelector('.map-lv').textContent = `Lv.${rmap.levelMin}–${rmap.levelMax}`;
     btn.querySelector('.map-prog-fill').style.width = `${locked ? 0 : p.pct}%`;
-    btn.querySelector('.map-hint').textContent = locked
-      ? '未解锁 · 需开放世界之石要塞'
-      : (hero.riftBossReady ? '守护者就绪' : (hero.currentMap === 'rift' ? `${p.have}/${p.need}` : '1层等同本章巴尔，层数无上限'));
+    const progLab = btn.querySelector('.map-prog-lab');
+    if (progLab) progLab.textContent = locked ? `0/${p.need}` : `${p.have}/${p.need}`;
     const lab = container.querySelector('.rift-floor-lab');
     if (lab) lab.textContent = locked ? '未解锁' : `第 ${hero.riftFloor} 层 / 可挑战 ${openMax}`;
     const prevBtn = container.querySelector('[data-rift-dir="-1"]');
@@ -2342,20 +2429,10 @@ function renderMapSelect() {
   }
 
   const visible = MAPS.filter(m => m.act === mapActTab);
-  if (container.dataset.act !== String(mapActTab) || container.childElementCount !== visible.length) {
-    container.dataset.act = String(mapActTab);
+  if (container.dataset.act !== `${mapActTab}v3` || container.childElementCount !== visible.length) {
+    container.dataset.act = `${mapActTab}v3`;
     container.innerHTML = visible.map(map =>
-      `<button type="button" class="map-btn${map.isBoss ? ' boss' : ''}" data-map="${map.id}">
-        <div class="map-btn-row">
-          <span class="map-name"></span>
-          <span class="map-lv"></span>
-        </div>
-        <span class="map-score"></span>
-        <div class="map-prog"><div class="map-prog-fill"></div></div>
-        <span class="map-hint"></span>
-        <span class="map-new-tag" hidden>新解锁</span>
-        <span class="map-new-dot" hidden></span>
-      </button>`
+      mapCardMarkup(map.isBoss ? ' boss' : '', `data-map="${map.id}"`)
     ).join('');
   }
 
@@ -2373,11 +2450,17 @@ function renderMapSelect() {
     btn.classList.toggle('map-new', isNew);
     btn.classList.toggle('boss', !!map.isBoss);
     btn.querySelector('.map-name').textContent = map.name + (map.isBoss ? ' · Boss' : '');
+    const statusEl = btn.querySelector('.map-status');
+    if (statusEl) {
+      statusEl.textContent = locked
+        ? '未解锁'
+        : (done ? '已通关' : (map.isBoss && p.ready ? '首领可挑战' : (isNew ? '可进入' : '进行中')));
+    }
+    btn.title = locked ? (mapUnlockHint(gameState, map, hero) || '尚未开放') : '';
     btn.querySelector('.map-lv').textContent = `Lv.${map.levelMin}–${map.levelMax}`;
     btn.querySelector('.map-prog-fill').style.width = `${locked ? 0 : p.pct}%`;
-    btn.querySelector('.map-hint').textContent = locked
-      ? (`未解锁 · ${mapUnlockHint(gameState, map, hero) || '尚未开放'}`)
-      : (done ? '已通关' : (isNew ? '可进入' : (map.isBoss && p.ready ? '首领可挑战' : `${p.have}/${p.need}`)));
+    const progLab = btn.querySelector('.map-prog-lab');
+    if (progLab) progLab.textContent = `${locked ? 0 : p.have}/${p.need}`;
     const tag = btn.querySelector('.map-new-tag');
     const dot = btn.querySelector('.map-new-dot');
     if (tag) tag.hidden = !isNew;

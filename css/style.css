@@ -43,7 +43,10 @@ body {
   max-width: 1400px;
   margin: 0 auto;
   padding: 12px;
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -59,6 +62,7 @@ body {
   border-radius: 8px;
   margin-bottom: 12px;
   gap: 12px;
+  flex: 0 0 auto;
 }
 .btn-danger {
   background: #3a1818;
@@ -134,12 +138,14 @@ body {
 .gold.dim { color: var(--text-dim); font-weight: 500; }
 
 /* Main Grid */
+/* Layout lock: do not change panel/column/stage sizes or positions unless explicitly requested. */
 .main-grid {
   display: grid;
   grid-template-columns: 400px 1fr 250px;
   gap: 12px;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .panel {
@@ -163,8 +169,16 @@ body {
 /* Hero Panel */
 .hero-panel {
   min-height: 0;
+  overflow: hidden;
+  gap: 8px;
+}
+.camp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -220,6 +234,8 @@ body {
 .stats-head h2 { margin: 0; border-bottom: none; padding-bottom: 0; }
 .stats-head .attr-pager { margin-left: auto; }
 .stats-panel {
+  min-height: 0;
+  overflow: hidden;
   gap: 6px;
 }
 .stats-panel .camp-attrs {
@@ -247,10 +263,12 @@ body {
 }
 .map-auto input { accent-color: var(--accent); }
 .stats-panel .map-select {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   margin-top: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .camp-meta {
@@ -328,7 +346,14 @@ body {
 .res-strip .res.mat-cloth { color: #e0d0f0; }
 .res-strip .res.mat-crystal { color: #9ed8ff; }
 
-.camp-inv-tools { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.camp-inv-tools {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-top: 0;
+}
 .sel-inline {
   background: var(--bg-panel-light);
   color: var(--text);
@@ -608,22 +633,34 @@ body {
   font-weight: 700;
   font-size: 0.92rem;
   font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  min-height: 1.2em;
+  white-space: nowrap;
 }
 .attr-row {
   display: flex;
   justify-content: space-between;
+  gap: 8px;
   font-size: 0.75rem;
   line-height: 1.45;
   color: #e8e0d0;
   border-bottom: 1px solid rgba(255,255,255,0.04);
   padding: 1px 0;
+  min-height: 1.45em;
 }
-.attr-val { color: #fff4d8; font-weight: 600; }
+.attr-val {
+  color: #fff4d8;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 4.5em;
+  flex: 0 0 auto;
+}
 .attr-pager { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--text-dim); }
 
 .skill-icon-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 .skill-icon-cell {
@@ -843,6 +880,44 @@ body {
 }
 .item-icon.lg .item-svg { width: 28px; height: 28px; }
 
+.inspect-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 10px;
+  align-items: center;
+  margin: 2px 0 6px;
+}
+.inspect-head .item-icon {
+  grid-row: 1 / span 2;
+}
+.inspect-scores { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.gs-line {
+  display: grid;
+  grid-template-columns: 1.3em 2.2em 1fr;
+  gap: 6px;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+.gs-k { color: var(--text-dim); font-weight: 700; }
+.gs-n { text-align: left; }
+.inspect-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin: 2px 0 4px;
+}
+.inspect-enh {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--gold);
+  margin-bottom: 4px;
+}
+.cmp-col.compact .inspect-head { justify-items: start; }
+.cmp-col.compact .inspect-name { font-size: 0.9rem; }
 .inspect-name { font-weight: 700; font-size: 1.08rem; }
 .inspect-name.unique-name {
   text-shadow: 0 0 8px rgba(200, 170, 110, 0.55);
@@ -1432,7 +1507,27 @@ body {
   50% { box-shadow: 0 0 16px rgba(212, 168, 67, 0.6); }
 }
 
-.combat-stage { position: relative; }
+.combat-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  height: 480px;
+  min-height: 480px;
+  max-height: 480px;
+  min-width: 0;
+}
+.iso-canvas {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: #08080e;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  image-rendering: pixelated;
+  display: block;
+}
 .combat-hud {
   position: absolute;
   top: 2px;
@@ -1483,20 +1578,43 @@ body {
 }
 .combat-hud .kill-counter .map-prog { margin-top: 1px; height: 3px; }
 .combat-skills {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  z-index: 4;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 8px 0 6px;
-  min-height: 58px;
+  align-items: center;
+  align-content: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  width: max-content;
+  max-width: calc(100% - 16px);
+  max-height: 136px;
+  overflow: hidden;
+  pointer-events: auto;
+  padding: 6px 8px 4px;
+  background: linear-gradient(180deg, rgba(8, 8, 14, 0.15), rgba(8, 8, 14, 0.78));
+  border-radius: 6px;
+}
+.combat-skills .csk,
+.combat-skills .csk-empty {
+  pointer-events: auto;
 }
 .csk {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  width: 64px;
-  padding: 4px 3px 5px;
+  justify-content: flex-start;
+  gap: 1px;
+  box-sizing: border-box;
+  width: 54px;
+  height: 64px;
+  flex: 0 0 54px;
+  padding: 3px 2px 3px;
   overflow: hidden;
   background: #12121a;
   border: 1px solid #3a3a32;
@@ -1504,11 +1622,19 @@ body {
   color: #e8dcc8;
   cursor: pointer;
 }
-.csk .item-icon { width: 28px; height: 28px; position: relative; z-index: 1; }
+.csk .item-icon {
+  width: 28px;
+  height: 28px;
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+}
+.csk .item-svg { width: 22px; height: 22px; }
 .csk-name {
-  font-size: 0.62rem;
+  display: block;
+  font-size: 0.58rem;
   line-height: 1.1;
-  max-width: 58px;
+  max-width: 50px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1516,7 +1642,15 @@ body {
   z-index: 1;
 }
 .csk-st {
-  font-size: 0.58rem;
+  font-size: 0.56rem;
+  line-height: 1.1;
+  height: 1.1em;
+  width: 100%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
   color: #8ed48e;
   position: relative;
   z-index: 1;
@@ -1548,15 +1682,6 @@ body {
   font-size: 0.75rem;
   padding: 8px 4px;
 }
-.iso-canvas {
-  width: 100%;
-  height: 380px;
-  background: #08080e;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  image-rendering: pixelated;
-  display: block;
-}
 .combat-buffs {
   position: absolute;
   top: 8px;
@@ -1582,6 +1707,7 @@ body {
 .buff-chip.aura { border-color: #c87820; }
 .buff-chip.shape { border-color: #6aba6a; }
 .buff-chip.buff { border-color: #80a0ff; }
+.buff-chip.debuff { border-color: #c05080; color: #f0b0c8; }
 .buff-lv { color: var(--gold); }
 .buff-time { color: var(--text-dim); margin-left: auto; }
 
@@ -1630,7 +1756,7 @@ body {
 label.hint { display: block; margin: 8px 0; }
 
 /* Combat Panel */
-.combat-panel { min-height: 400px; }
+.combat-panel { min-height: 0; min-width: 0; overflow: hidden; }
 
 .map-info {
   display: flex;
@@ -1670,10 +1796,32 @@ label.hint { display: block; margin: 8px 0; }
   border-radius: 4px;
 }
 
+.combat-logs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.combat-log-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.combat-log-title {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
 .combat-log {
   flex: 1;
   overflow-y: auto;
-  max-height: 280px;
+  min-height: 72px;
+  max-height: none;
   background: #0a0a12;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1683,12 +1831,14 @@ label.hint { display: block; margin: 8px 0; }
 }
 
 .log-entry { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.log-entry.muted { color: var(--text-dim); border-bottom: 0; }
 .log-entry.kill { color: #aaa; }
 .log-entry.loot { color: var(--magic-blue); }
 .log-entry.skill { color: var(--legendary-orange); }
 .log-entry.boss { color: #ff4444; font-weight: 600; }
 .log-entry.death { color: #cc4444; }
 .log-entry.level { color: var(--gold); font-weight: 600; }
+.log-entry.info { color: #c8bfae; }
 
 /* Stats Panel */
 .stat-grid {
@@ -1717,6 +1867,7 @@ label.hint { display: block; margin: 8px 0; }
   grid-template-columns: repeat(4, 1fr);
   gap: 3px;
   margin-bottom: 6px;
+  flex: 0 0 auto;
 }
 .diff-tab {
   background: var(--bg-panel-light);
@@ -1753,6 +1904,7 @@ label.hint { display: block; margin: 8px 0; }
   grid-template-columns: repeat(6, 1fr);
   gap: 3px;
   margin-bottom: 8px;
+  flex: 0 0 auto;
 }
 
 .act-tab {
@@ -1815,9 +1967,12 @@ label.hint { display: block; margin: 8px 0; }
 
 .map-list {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 5px;
-  overflow: visible;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .map-btn {
@@ -1962,6 +2117,20 @@ label.hint { display: block; margin: 8px 0; }
   color: var(--text-bright);
   font-weight: 700;
 }
+.map-status {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #c8bfae;
+  white-space: nowrap;
+}
+.map-btn.locked .map-status { color: #d4cbb8; }
+.map-btn.cleared .map-status { color: #6aaa78; }
+.map-btn.map-new .map-status { color: #ffd24a; }
+
+.map-rec-row {
+  font-size: 0.7rem;
+}
 
 .map-hint { color: #d0c6b4; font-size: 0.74rem; font-weight: 600; }
 
@@ -1973,10 +2142,32 @@ label.hint { display: block; margin: 8px 0; }
   width: 100%;
   margin-top: 4px;
 }
+.map-btn .map-prog {
+  position: relative;
+  height: 16px;
+  margin-top: 3px;
+  border-radius: 4px;
+  overflow: hidden;
+}
 .map-prog-fill {
   height: 100%;
   background: linear-gradient(90deg, #6a4a10, var(--gold));
   width: 0;
+}
+.map-prog-lab {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #f4ead8;
+  text-shadow: 0 1px 2px #000;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
 .sheet-tabs {
@@ -1985,7 +2176,7 @@ label.hint { display: block; margin: 8px 0; }
   margin-bottom: 12px;
 }
 
-.modal-content.wide { max-width: 960px; }
+.modal-content.wide { max-width: 1040px; }
 
 .map-btn:hover { border-color: var(--accent); }
 .map-btn.active {
@@ -1994,13 +2185,13 @@ label.hint { display: block; margin: 8px 0; }
   color: var(--text-bright);
 }
 
-.map-lv { color: #d4cbb8; font-size: 0.75rem; font-weight: 600; }
+.map-lv { color: #d4cbb8; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
 .map-score {
-  display: block;
-  width: 100%;
   font-size: 0.68rem;
   font-weight: 700;
   color: #c8b060;
+  white-space: nowrap;
+  text-align: right;
 }
 .map-score.ok { color: #7dff9a; }
 .map-score.mid { color: #ffd24a; }
@@ -2015,6 +2206,7 @@ label.hint { display: block; margin: 8px 0; }
   color: var(--text-dim);
   display: flex;
   justify-content: space-between;
+  flex: 0 0 auto;
 }
 
 /* Modal */
@@ -2558,6 +2750,9 @@ html[data-ui="mobile"] {
   body[data-mview="maps"] .stats-panel {
     display: flex;
   }
+  body[data-mview="combat"] .combat-panel {
+    overflow: hidden;
+  }
 
   .mobile-nav {
     display: grid;
@@ -2587,10 +2782,29 @@ html[data-ui="mobile"] {
     box-shadow: inset 0 2px 0 var(--gold);
   }
 
-  .iso-canvas { height: min(42dvh, 280px); }
-  .combat-log { max-height: 120px; flex: none; }
-  .combat-skills { justify-content: center; }
-  .csk { width: 70px; min-height: 62px; }
+  .combat-stage {
+    flex: 0 0 auto;
+    height: min(480px, 42dvh);
+    min-height: 160px;
+    max-height: 480px;
+  }
+  .iso-canvas { height: 100%; min-height: 0; flex: 1 1 auto; }
+  .combat-logs { flex: 1 1 auto; min-height: 0; }
+  .combat-log { max-height: none; min-height: 64px; }
+  .combat-skills {
+    position: absolute;
+    left: 50%;
+    bottom: 6px;
+    transform: translateX(-50%);
+    flex-wrap: wrap;
+    overflow: hidden;
+    max-height: 132px;
+    max-width: calc(100% - 12px);
+    align-content: center;
+  }
+  .csk { width: 50px; height: 62px; min-height: 62px; flex-basis: 50px; }
+  .csk .item-icon { width: 26px; height: 26px; }
+  .csk .item-svg { width: 20px; height: 20px; }
 
   .camp-mid { display: flex; }
   .d2-doll { gap: 7px; }
