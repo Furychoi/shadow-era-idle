@@ -537,7 +537,7 @@ function bindEvents() {
       if (!r.same) {
         knownMapUnlocks = null;
         resetFieldForZone();
-        addLog({ type: 'info', text: `难度切换为${r.diff.name}（怪物 Lv.${r.diff.lvMin}–${r.diff.lvMax} · ×${r.diff.monsterMult} · 掉落 ×${r.diff.lootMult}）` });
+        addLog({ type: 'info', text: `难度切换为${r.diff.name}（怪物 Lv.${r.diff.lvMin}–${r.diff.lvMax} · ×${r.diff.monsterMult} · 装备属性 ×${r.diff.statMult}）` });
         lastCampSig = '';
         renderAll();
       }
@@ -949,7 +949,7 @@ function campSig() {
   const enh = SLOTS.map(s => hero.equipment[s]?.enhance || 0).join(',');
   const mats = ensureMats(gameState);
   const tr = JSON.stringify(hero.train || {});
-  return [hero.charId, hero.level, hero.skillPoints, JSON.stringify(hero.skillLevels), eq, inv, selSlot, selInvUid, [...selInvUids].sort().join('.'), invMultiMode ? 'm' : '', gameState.invFilter || 'all', JSON.stringify(normalizeInvSort(gameState.invSort)), invPage, gameState.autoSell?.enabled ? '1' : '0', gameState.autoSell?.maxQuality || '', gameState.autoSell?.action || '', autosellOpen ? 'p' : '', buildPopOpen ? 'b' : '', hero.buildId || '', enh, mats.metal, mats.cloth, mats.crystal, tr, gameState.gold, gameState.bagExpands || 0, hero.diffId || 'normal', JSON.stringify(hero.diffCleared || {}), (gameState.unlockedChars || []).join(','), (gameState.seenChars || []).join(','), Object.values(gameState.heroes || {}).map(h => `${h.charId}:${h.buildId || ''}`).join(',')].join('|');
+  return [hero.charId, hero.level, hero.skillPoints, JSON.stringify(hero.skillLevels), eq, inv, selSlot, selInvUid, [...selInvUids].sort().join('.'), invMultiMode ? 'm' : '', gameState.invFilter || 'all', JSON.stringify(normalizeInvSort(gameState.invSort)), invPage, gameState.autoSell?.enabled ? '1' : '0', gameState.autoSell?.maxQuality || '', gameState.autoSell?.action || '', gameState.junkQuality || '', autosellOpen ? 'p' : '', buildPopOpen ? 'b' : '', hero.buildId || '', enh, mats.metal, mats.cloth, mats.crystal, tr, gameState.gold, gameState.bagExpands || 0, hero.diffId || 'normal', JSON.stringify(hero.diffCleared || {}), (gameState.unlockedChars || []).join(','), (gameState.seenChars || []).join(','), Object.values(gameState.heroes || {}).map(h => `${h.charId}:${h.buildId || ''}`).join(',')].join('|');
 }
 
 function renderHeroPanel() {
@@ -2229,7 +2229,7 @@ function renderMapSelect() {
       diffEl.innerHTML = WORLD_DIFFS.map(d => {
         const open = diffUnlocked(gameState, d.id, hero);
         const title = open
-          ? `${d.name}：怪物 Lv.${d.lvMin}–${d.lvMax}，×${d.monsterMult}，掉落属性 ×${d.lootMult}`
+          ? `${d.name}：怪物 Lv.${d.lvMin}–${d.lvMax}，×${d.monsterMult}，装备属性 ×${d.statMult}`
           : `击败${WORLD_DIFFS.find(x => x.tier === d.tier - 1)?.name || '上一'}难度的巴尔后解锁`;
         return `<button type="button" class="diff-tab diff-${d.id}${cur.id === d.id ? ' active' : ''}${open ? '' : ' locked'}" data-diff="${d.id}" title="${title}">${d.name}</button>`;
       }).join('');

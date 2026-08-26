@@ -22,6 +22,72 @@ function usesNamedAffixBands(itemOrQ) {
   return q === 'unique' || q === 'ancientUnique' || q === 'set' || q === 'ancientSet' || q === 'ancient';
 }
 
+function defaultAutoSell() {
+  return {
+    enabled: true,
+    maxQuality: 'magic',
+    keepBetter: true,
+    minKeepLevel: 0,
+    action: 'sell',
+  };
+}
+
+function normalizeJunkQuality(q) {
+  if (!q || q === 'ancient' || q === 'ancientSet' || q === 'ancientUnique') return 'magic';
+  return q;
+}
+
+function normalizeAutoSell(cfg) {
+  const d = defaultAutoSell();
+  const src = cfg && typeof cfg === 'object' ? cfg : {};
+  const out = {
+    enabled: src.enabled !== false,
+    maxQuality: src.maxQuality || d.maxQuality,
+    keepBetter: src.keepBetter !== false,
+    minKeepLevel: src.minKeepLevel == null ? d.minKeepLevel : Math.max(0, Number(src.minKeepLevel) || 0),
+    action: src.action === 'salvage' ? 'salvage' : 'sell',
+  };
+  if (out.maxQuality === 'legendary' || out.maxQuality === 'set') out.maxQuality = 'magic';
+  return out;
+}
+
+function ensureHeroAutoSell(hero, seed) {
+  if (!hero) return hero;
+  if (!hero.autoSell) hero.autoSell = normalizeAutoSell(seed);
+  else hero.autoSell = normalizeAutoSell(hero.autoSell);
+  if (hero.junkQuality == null) hero.junkQuality = normalizeJunkQuality(seed?.junkQuality);
+  else hero.junkQuality = normalizeJunkQuality(hero.junkQuality);
+  return hero;
+}
+
+function heroAutoSell(state, hero) {
+  const h = hero || getActiveHero(state);
+  ensureHeroAutoSell(h);
+  return h.autoSell;
+}
+
+function migrateHeroAutoSell(state) {
+  if (!state) return;
+  const sellDesc = Object.getOwnPropertyDescriptor(state, 'autoSell');
+  const accSell = sellDesc && Object.prototype.hasOwnProperty.call(sellDesc, 'value') ? sellDesc.value : null;
+  const junkDesc = Object.getOwnPropertyDescriptor(state, 'junkQuality');
+  const accJunk = junkDesc && Object.prototype.hasOwnProperty.call(junkDesc, 'value') ? junkDesc.value : null;
+  const seed = normalizeAutoSell(accSell);
+  seed.junkQuality = normalizeJunkQuality(accJunk);
+  if (!state.heroAutoSellV1) {
+    state.heroAutoSellV1 = true;
+    for (const h of Object.values(state.heroes || {})) {
+      if (!h) continue;
+      if (!h.autoSell) h.autoSell = normalizeAutoSell(seed);
+      else h.autoSell = normalizeAutoSell(h.autoSell);
+      if (h.junkQuality == null) h.junkQuality = seed.junkQuality;
+      else h.junkQuality = normalizeJunkQuality(h.junkQuality);
+    }
+  } else {
+    for (const h of Object.values(state.heroes || {})) ensureHeroAutoSell(h);
+  }
+}
+
 function defaultHeroEcon(starter = false) {
   return {
     gold: starter ? 800 : 0,
@@ -61,10 +127,11 @@ function ensureHeroEconomy(hero, starter = false) {
     keepHp: a.keepHp || 20,
     keepMana: a.keepMana || 16,
   };
+  ensureHeroAutoSell(hero);
   return hero;
 }
 
-const HERO_ECON_KEYS = ['gold', 'inventory', 'bagExpands', 'mats', 'hpPotions', 'manaPotions', 'potionTier', 'hpPotionTier', 'manaPotionTier', 'potionAuto'];
+const HERO_ECON_KEYS = ['gold', 'inventory', 'bagExpands', 'mats', 'hpPotions', 'manaPotions', 'potionTier', 'hpPotionTier', 'manaPotionTier', 'potionAuto', 'autoSell', 'junkQuality'];
 const ECON_BOUND = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
 
 function bindHeroEconomy(state) {
@@ -129,14 +196,6 @@ function createNewGame() {
     bossesKilled: {},
     lastSaveTime: Date.now(),
     offlineClaimed: false,
-    autoSell: {
-      enabled: true,
-      maxQuality: 'magic',
-      keepBetter: true,
-      minKeepLevel: 0,
-      action: 'sell',
-    },
-    junkQuality: 'magic',
     invFilter: 'all',
     invSort: { rarity: true, ilvl: true, score: true },
     shards: 0,
@@ -150,6 +209,7 @@ function createNewGame() {
     heroMapProgressV1: true,
     heroMapProgressV2: true,
     heroDiffUnlockV1: true,
+    heroAutoSellV1: true,
     town: createTownState(),
   };
   ensureDiffProgress(state);
@@ -185,6 +245,8 @@ function createHero(charId, level = 1, equipment = {}) {
     kills: 0, combo: 0, deaths: 0,
     isDead: false, respawnTimer: 0,
     train: { unlocked: {}, lv: {} },
+    autoSell: defaultAutoSell(),
+    junkQuality: 'magic',
   };
   for (const slot of SLOTS) {
     if (equipment[slot]) hero.equipment[slot] = equipment[slot];
@@ -452,6 +514,7 @@ function loadGame() {
       ensureEquippedSkillLevels(h);
       clampHeroResource(h);
     }
+    migrateHeroAutoSell(state);
     migrateHeroEconomy(state);
     if ((state.shards || 0) > 0) {
       const mats = ensureMats(state);
@@ -921,7 +984,7 @@ function applyOneIdleKill(state, hero, map) {
   levelUpHero(hero);
   hero.gold = (hero.gold || 0) + Math.floor(5 + avg * 3);
   hero.kills = (hero.kills || 0) + 1;
-  if (Math.random() < 0.018) {
+  if (dropChance(0.018)) {
     addLoot(state, generateLoot(avg, null, 'normal', hero.charId, state), hero);
   }
   if (hero.currentMap === 'rift' || map.isRift) {
@@ -1033,8 +1096,8 @@ function onRiftBossKill(state, hero, monster) {
   const loot = [];
   const lv = monster?.level || 88;
   loot.push(generateLoot(lv, null, 'riftBoss', hero.charId, state));
-  if (Math.random() < 0.45) loot.push(generateLoot(lv, null, 'riftBoss', hero.charId, state));
-  if (Math.random() < 0.12) loot.push(generateLoot(lv, 'ancient', 'riftBoss', hero.charId, state));
+  if (dropChance(0.45)) loot.push(generateLoot(lv, null, 'riftBoss', hero.charId, state));
+  if (dropChance(0.12)) loot.push(generateLoot(lv, 'ancient', 'riftBoss', hero.charId, state));
   return { cleared, next: hero.riftFloor, unlocked: riftHighestOpen(hero), loot };
 }
 
@@ -1796,7 +1859,8 @@ function qualitySellMatch(item, mode) {
 }
 
 function shouldAutoSell(state, item, hero) {
-  const cfg = state.autoSell;
+  hero = hero || getActiveHero(state);
+  const cfg = heroAutoSell(state, hero);
   if (!cfg?.enabled || item.locked) return false;
   const keepLv = Number(cfg.minKeepLevel) || 0;
   if (keepLv > 0 && (item.itemLevel || 0) >= keepLv) return false;
@@ -1808,7 +1872,9 @@ function shouldAutoSell(state, item, hero) {
 }
 
 function junkBagTargets(state, mode) {
-  const filter = mode || state.junkQuality || 'magic';
+  const hero = getActiveHero(state);
+  ensureHeroAutoSell(hero);
+  const filter = mode || hero?.junkQuality || 'magic';
   return (state.inventory || []).filter((it) => !it.locked && qualitySellMatch(it, filter));
 }
 
@@ -1838,7 +1904,8 @@ function addLoot(state, item, hero) {
   hero = hero || getActiveHero(state);
   ensureHeroEconomy(hero, false);
   if (shouldAutoSell(state, item, hero)) {
-    if (state.autoSell.action === 'salvage') {
+    const cfg = heroAutoSell(state, hero);
+    if (cfg.action === 'salvage') {
       const r = salvageItem(state, item, hero);
       return { sold: true, salvage: true, gold: r.gold, metal: r.metal, cloth: r.cloth, crystal: r.crystal, item };
     }
@@ -2525,7 +2592,7 @@ function scoreItem(item, hero) {
   let atk = 0;
   let surv = 0;
   const exp = expectedItemBase(item);
-  const lootM = itemLootMult(item);
+  const lootM = itemDiffStatMult(item);
   const affQ = itemAffixQualityMult(item);
   if (item.baseDamage && exp.damage) atk += 34 * (item.baseDamage / exp.damage) * lootM;
   if (item.attackSpeed) atk += 8 * (item.attackSpeed / 0.1);
@@ -2613,8 +2680,10 @@ function mapRecommendScore(map, state) {
     dmg = boss.damage * (to.damage / Math.max(1, from.damage)) * w * rift;
   } else {
     const ms = monsterStats(lv);
-    const pack = ((map.packMin || 1) + (map.packMax || 1)) / 2;
-    hp = ms.hp * w * rift * pack * 1.55;
+    const pack = mapPackRange(map, typeof getWorldDiff === 'function' && state
+      ? getWorldDiff(state, getActiveHero(state))
+      : WORLD_DIFFS[0]);
+    hp = ms.hp * w * rift * ((pack.packMin + pack.packMax) / 2) * 1.55;
     dmg = ms.damage * w * rift * 1.3;
   }
   const asBoss = !!(map.isBoss || map.isRift);

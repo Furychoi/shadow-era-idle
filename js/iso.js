@@ -652,7 +652,11 @@ class IsoField {
       return;
     }
     const pal = racePalette(m.race, m.kind);
-    const scale = m.isBoss ? 1.45 : m.kind === 'hidden' ? 1.32 : m.kind === 'rare' ? 1.25 : m.kind === 'elite' ? 1.12 : 1;
+    const scale = m.isBoss || m.kind === 'riftBoss' || m.kind === 'actBoss' || m.kind === 'rareBoss'
+      ? 3
+      : (m.kind === 'rare' || m.kind === 'hidden') ? 2
+      : m.kind === 'elite' ? 1.25
+      : 1;
     drawMob(this.ctx, s.x, s.y, pal, scale, this.t + (m.iso.x || 0));
     if (m.ranged) {
       this.ctx.fillStyle = pal[2];

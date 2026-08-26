@@ -1010,7 +1010,7 @@ function rollKind(clearFactor = 0) {
 }
 
 function goblinSpawnChance(clearFactor = 0) {
-  return 0.01 + Math.min(0.07, Math.max(0, clearFactor) * 0.022);
+  return (0.01 + Math.min(0.07, Math.max(0, clearFactor) * 0.022)) * DROP_RATE;
 }
 
 function applyWorldMonsterMult(m, mult) {

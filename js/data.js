@@ -30,11 +30,43 @@ const JUNK_FILTER_MODES = [
 ];
 
 const WORLD_DIFFS = [
-  { id: 'normal', name: '普通', tier: 0, monsterMult: 1, lootMult: 1, lvMin: 1, lvMax: 88 },
-  { id: 'hard', name: '困难', tier: 1, monsterMult: 1.5, lootMult: 2, lvMin: 60, lvMax: 95 },
-  { id: 'nightmare', name: '噩梦', tier: 2, monsterMult: 2.25, lootMult: 4, lvMin: 70, lvMax: 100 },
-  { id: 'hell', name: '地狱', tier: 3, monsterMult: 3.375, lootMult: 8, lvMin: 80, lvMax: 105 },
+  { id: 'normal', name: '普通', tier: 0, monsterMult: 1, lootMult: 1, statMult: 1, lvMin: 1, lvMax: 88 },
+  { id: 'hard', name: '困难', tier: 1, monsterMult: 1.5, lootMult: 2, statMult: 1.5, lvMin: 60, lvMax: 95 },
+  { id: 'nightmare', name: '噩梦', tier: 2, monsterMult: 2.25, lootMult: 4, statMult: 2, lvMin: 70, lvMax: 100 },
+  { id: 'hell', name: '地狱', tier: 3, monsterMult: 3.375, lootMult: 8, statMult: 3, lvMin: 80, lvMax: 105 },
 ];
+const ACT_PACK_RANGE = {
+  1: [3, 6],
+  2: [4, 8],
+  3: [5, 10],
+  4: [6, 12],
+  5: [7, 14],
+};
+const DIFF_PACK_RANGE = {
+  hard: [8, 16],
+  nightmare: [9, 18],
+  hell: [10, 20],
+};
+const DROP_RATE = 0.75;
+
+function mapPackRange(map, diff) {
+  const act = Math.min(5, Math.max(1, Number(map?.act) || 1));
+  const byAct = ACT_PACK_RANGE[act] || ACT_PACK_RANGE[1];
+  const d = typeof diff === 'string' ? getDiffById(diff) : (diff && diff.id ? getDiffById(diff.id) : (diff || WORLD_DIFFS[0]));
+  const byDiff = DIFF_PACK_RANGE[d.id];
+  const range = byDiff || byAct;
+  return { packMin: range[0], packMax: range[1] };
+}
+
+function dropChance(p) {
+  return Math.random() < Math.max(0, Number(p) || 0) * DROP_RATE;
+}
+
+function dropRolls(expected) {
+  const e = Math.max(0, Number(expected) || 0) * DROP_RATE;
+  const n = Math.floor(e);
+  return n + (Math.random() < (e - n) ? 1 : 0);
+}
 const CAMPAIGN_LV_MIN = 1;
 const CAMPAIGN_LV_MAX = 88;
 
@@ -69,8 +101,14 @@ function itemLootMult(item) {
   return getDiffById(item.diffId).lootMult || 1;
 }
 
+function itemDiffStatMult(item) {
+  if (!item?.diffId) return 1;
+  const d = getDiffById(item.diffId);
+  return d.statMult != null ? d.statMult : (d.lootMult || 1);
+}
+
 function itemStatMult(item) {
-  return itemEnhanceMult(item) * itemLootMult(item);
+  return itemEnhanceMult(item) * itemDiffStatMult(item);
 }
 
 function itemAffixQualityMult(item) {

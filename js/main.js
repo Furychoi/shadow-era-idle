@@ -202,8 +202,9 @@ function spawnPack(map) {
   if (isChapterBossReady(gameState, map, hero) && campaignOf(gameState, hero).bossesKilled?.[map.bossId]) {
     combat.bossPity = pity + 1;
   }
-  const min = Math.max(3, (map.packMin || 2) + 2);
-  const max = Math.max(min + 1, (map.packMax || 3) + 3);
+  const pack = mapPackRange(map, getWorldDiff(gameState, hero));
+  const min = pack.packMin;
+  const max = Math.max(min, pack.packMax);
   const n = min + Math.floor(Math.random() * (max - min + 1));
   const clearFactor = mapClearFactor(gameState, map);
   combat.monsters = [];
@@ -1076,7 +1077,7 @@ function spawnDrops(hero, monster, extraItems) {
   if (monster.treasureGoblin) {
     const piles = splitGoldPiles(monster.gold || 120, monster.goldPiles || 6);
     piles.forEach((amt, i) => spawnGoldDrop(mx, my, amt, i, piles.length));
-    const nItems = monster.lootRolls || 5;
+    const nItems = Math.max(1, dropRolls(monster.lootRolls || 5));
     const items = extraItems ? extraItems.slice() : [];
     while (items.length < nItems) items.push(generateLoot(monster.level, null, 'goblin', hero.charId, gameState));
     items.forEach((item, i) => {
@@ -1102,12 +1103,13 @@ function spawnDrops(hero, monster, extraItems) {
   }
   spawnGoldDrop(mx, my, monster.isBoss ? 250 : (monster.gold || 5));
   const items = extraItems ? extraItems.slice() : [];
-  let rolls = 0;
-  if (monster.kind === 'hidden') rolls = 2 + (Math.random() < 0.5 ? 1 : 0);
-  else if (monster.kind === 'rare' || monster.kind === 'rareBoss') rolls = 1 + (Math.random() < 0.55 ? 1 : 0);
-  else if (monster.kind === 'elite') rolls = 1 + (Math.random() < 0.18 ? 1 : 0);
-  else if (monster.isBoss || monster.kind === 'actBoss' || monster.kind === 'riftBoss') rolls = 2;
-  else if (Math.random() < 0.1) rolls = 1;
+  let expected = 0;
+  if (monster.kind === 'hidden') expected = 2.5;
+  else if (monster.kind === 'rare' || monster.kind === 'rareBoss') expected = 1.55;
+  else if (monster.kind === 'elite') expected = 1.18;
+  else if (monster.isBoss || monster.kind === 'actBoss' || monster.kind === 'riftBoss') expected = 2;
+  else expected = 0.1;
+  const rolls = dropRolls(expected);
   if (!items.length) {
     for (let i = 0; i < rolls; i++) items.push(generateLoot(monster.level, null, monster.kind, hero.charId, gameState));
   }

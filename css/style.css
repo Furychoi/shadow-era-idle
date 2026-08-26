@@ -1260,7 +1260,12 @@ body {
   border-color: #a06050;
   color: #f0d0c4;
 }
-.as-opts { display: flex; flex-direction: column; gap: 3px; }
+.as-scope {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--gold);
+  margin-bottom: 6px;
+}
 .as-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 2px 0 6px; }
 .as-opt {
   text-align: left;
