@@ -117,7 +117,9 @@
     const prep = $('prepare');
     if (!game.waveAlive && game.wave > 0 && game.phase === 'ready') {
       prep.hidden = false;
-      prep.textContent = `休整 ${Math.ceil(game.prepareLeft)} 秒 · 提前开战可获金币`;
+      prep.textContent = game.prepareLeft > 0
+        ? `休整中 · 提前开战奖金币（${Math.ceil(game.prepareLeft)} 秒内）`
+        : '点「下一波」继续；利用金币建造或升级';
     } else {
       prep.hidden = true;
     }

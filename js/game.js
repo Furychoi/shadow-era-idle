@@ -522,9 +522,8 @@
           }
         }
       } else if (this.phase === 'ready' && this.wave > 0) {
-        this.prepareLeft -= dt;
-        this.earlyBonus = Math.max(0, this.prepareLeft);
-        if (this.prepareLeft <= 0) this.startWave();
+        this.prepareLeft = Math.max(0, this.prepareLeft - dt);
+        this.earlyBonus = this.prepareLeft;
       }
       this.tickFx(dt);
     }
