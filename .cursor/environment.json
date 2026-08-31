@@ -1,0 +1,13 @@
+{
+  "name": "Shadow Era: Idle Chronicles",
+  "terminals": [
+    {
+      "name": "static-server",
+      "command": "python3 -m http.server 8080",
+      "description": "Serves the static idle RPG. Open http://127.0.0.1:8080/ (do not use file://)."
+    }
+  ],
+  "ports": [
+    { "name": "web", "port": 8080 }
+  ]
+}
