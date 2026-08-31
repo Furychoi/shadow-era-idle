@@ -206,9 +206,37 @@ function renderAll() {
   renderMapSelect();
   checkOfflineReward();
     syncTownButton();
+    syncDeathUi(getActiveHero(gameState));
   } catch (err) {
     console.error('[ui]', err);
   }
+}
+
+function formatRespawnLeft(hero) {
+  return Math.max(0, hero?.respawnTimer || 0).toFixed(1);
+}
+
+function syncDeathUi(hero) {
+  const dead = !!(hero && hero.isDead);
+  const left = formatRespawnLeft(hero);
+  const overlay = document.getElementById('death-overlay');
+  const count = document.getElementById('death-count');
+  const stage = document.querySelector('.combat-stage');
+  if (overlay) overlay.hidden = !dead;
+  if (count) count.textContent = left;
+  stage?.classList.toggle('is-dead', dead);
+  const st = document.getElementById('hero-status');
+  if (st) {
+    if (dead) {
+      st.hidden = false;
+      st.className = 'status dead';
+      st.innerHTML = `<span class="death-lab">已死亡</span><span class="death-cd">${left}秒</span>`;
+    } else {
+      st.hidden = true;
+      st.textContent = '';
+    }
+  }
+  document.getElementById('camp-panel')?.classList.toggle('hero-down', dead);
 }
 
 function bindEvents() {
@@ -962,7 +990,7 @@ function renderHeroPanel() {
   const map = getCurrentMap(hero, gameState);
   const power = heroGearScore(hero);
   const nameEl = document.getElementById('hero-name');
-  nameEl.innerHTML = `${charDef.name} Lv.${hero.level} <span class="hero-score">总评分：${formatCompactNum(power)}</span>`;
+  nameEl.innerHTML = `${charDef.name} Lv.${hero.level}${hero.isDead ? ' <span class="hero-down-tag">倒下</span>' : ''} <span class="hero-score">总评分：${formatCompactNum(power)}</span>`;
   nameEl.title = `总评分 ${power.toLocaleString()}`;
   const skillBtn = document.getElementById('btn-skills');
   if (skillBtn) {
@@ -1002,7 +1030,9 @@ function renderHeroPanel() {
     }
   }
   document.getElementById('hero-hp-bar').style.width = `${Math.max(0, hero.currentHp / stats.maxHp * 100)}%`;
-  document.getElementById('hero-hp-text').textContent = `${Math.floor(Math.max(0, hero.currentHp))} / ${stats.maxHp}`;
+  document.getElementById('hero-hp-text').textContent = hero.isDead
+    ? `倒下 · ${formatRespawnLeft(hero)}秒后复活`
+    : `${Math.floor(Math.max(0, hero.currentHp))} / ${stats.maxHp}`;
   clampHeroResource(hero, stats);
   const resBar = document.getElementById('hero-res-bar');
   const resText = document.getElementById('hero-res-text');
@@ -1018,15 +1048,9 @@ function renderHeroPanel() {
   renderCharTabs();
   syncBagExpandBtn();
   const st = document.getElementById('hero-status');
-  if (st) {
-    if (hero.isDead) {
-      st.hidden = false;
-      st.textContent = `复活 ${Math.ceil(hero.respawnTimer)}s`;
-      st.className = 'status dead';
-    } else {
-      st.hidden = true;
-      st.textContent = '';
-    }
+  if (st && !hero.isDead) {
+    st.hidden = true;
+    st.textContent = '';
   }
   renderCampAttrs(hero);
   const sig = campSig();
@@ -2153,6 +2177,15 @@ function renderCombatHud() {
   document.getElementById('kill-counter').innerHTML =
     `${label} ${p.have} / ${p.need}` +
     `<div class="map-prog"><div class="map-prog-fill" style="width:${p.pct}%"></div></div>`;
+  if (hero.isDead) {
+    name.textContent = '已倒下';
+    kindEl.textContent = '等待复活';
+    kindEl.style.color = '#ff8a8a';
+    bar.style.width = '0%';
+    hpText.textContent = `${formatRespawnLeft(hero)}秒`;
+    document.getElementById('kill-counter').innerHTML = `倒下 · ${formatRespawnLeft(hero)}秒后复活`;
+    document.getElementById('boss-winrate').style.display = 'none';
+  }
   const buffsEl = document.getElementById('combat-buffs');
   if (buffsEl) {
     const list = collectHudBuffs(hero, combatState?.buffs);
@@ -2656,8 +2689,11 @@ function charTabInner(tab, unlocked, active) {
       <span class="char-tab-need">${classUnlockHint(tab.id)}</span>${dot}`;
   }
   const build = getHeroBuild(gameState.heroes[tab.id]);
+  const h = gameState.heroes[tab.id];
+  const down = !!(h && h.isDead);
+  const cd = down ? ` ${Math.ceil(h.respawnTimer || 0)}s` : '';
   return `<span class="char-tab-line">${name}</span>
-    <span class="char-tab-state">${active ? '出战' : '挂机'}</span>
+    <span class="char-tab-state${down ? ' down' : ''}">${down ? `倒地${cd}` : (active ? '出战' : '挂机')}</span>
     <span class="char-tab-build">${build ? build.name : '未选'}</span>${dot}`;
 }
 
@@ -2673,7 +2709,9 @@ function renderCharTabs() {
       const active = gameState.activeCharId === tab.id;
       const hint = unlocked ? (CHARACTERS[tab.id]?.name || tab.short) : classUnlockHint(tab.id);
       const isNew = isNewUnlockedChar(tab.id);
-      const cls = `char-tab${active ? ' on' : ''}${unlocked ? ' open' : ' locked'}${isNew ? ' char-new' : ''}`;
+      const h = unlocked ? gameState.heroes[tab.id] : null;
+      const down = !!(h && h.isDead);
+      const cls = `char-tab${active ? ' on' : ''}${unlocked ? ' open' : ' locked'}${isNew ? ' char-new' : ''}${down ? ' down' : ''}`;
       return `<button type="button" class="${cls}" data-char="${tab.id}" title="${hint}" aria-disabled="${unlocked ? 'false' : 'true'}">${charTabInner(tab, unlocked, active)}</button>`;
     }).join('');
     return;
@@ -2686,13 +2724,16 @@ function renderCharTabs() {
     const hint = unlocked ? (CHARACTERS[tab.id]?.name || tab.short) : classUnlockHint(tab.id);
     const build = getHeroBuild(gameState.heroes[tab.id]);
     const isNew = isNewUnlockedChar(tab.id);
-    const vis = `${unlocked ? 1 : 0}|${active ? 1 : 0}|${build?.id || ''}|${isNew ? 1 : 0}`;
+    const h = gameState.heroes[tab.id];
+    const down = !!(h && h.isDead);
+    const vis = `${unlocked ? 1 : 0}|${active ? 1 : 0}|${build?.id || ''}|${isNew ? 1 : 0}|${down ? Math.ceil(h.respawnTimer || 0) : 0}`;
     if (btn.dataset.vis === vis) continue;
     btn.dataset.vis = vis;
     btn.classList.toggle('on', active);
     btn.classList.toggle('open', unlocked);
     btn.classList.toggle('locked', !unlocked);
     btn.classList.toggle('char-new', isNew);
+    btn.classList.toggle('down', down);
     btn.title = hint;
     btn.setAttribute('aria-disabled', unlocked ? 'false' : 'true');
     btn.innerHTML = charTabInner(tab, unlocked, active);
@@ -3234,6 +3275,7 @@ function showBossReward(reward) {
 window.initUI = initUI;
 window.setCombatState = setCombatState;
 window.renderAll = renderAll;
+window.syncDeathUi = syncDeathUi;
 window.addLog = addLog;
 window.showBossReward = showBossReward;
 window.notifyTownUnlock = notifyTownUnlock;

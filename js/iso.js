@@ -34,6 +34,35 @@ function screenToIso(sx, sy, ox, oy, tw = _tw, th = _th) {
   return { x: (dx + dy) / 2, y: (dy - dx) / 2 };
 }
 
+function clampIsoAxis(v) {
+  return Math.max(0.85, Math.min(GRID_N - 1.35, v));
+}
+
+function isoPlayLayout(w, h) {
+  const playW = GRID_N * TILE_W;
+  const playH = GRID_N * TILE_H;
+  const scale = Math.max(w / playW, h / playH) || 1;
+  const tw = TILE_W * scale;
+  const th = TILE_H * scale;
+  return { tw, th, scale, ox: w / 2, oy: (h - GRID_N * th) / 2 };
+}
+
+function clampIsoPos(x, y, field) {
+  const view = field || (typeof window !== 'undefined' ? window.isoField : null);
+  const w = view?.w || 0;
+  const h = view?.h || 0;
+  if (w < 16 || h < 16) return { x: clampIsoAxis(x), y: clampIsoAxis(y) };
+  const { ox, oy, tw, th } = isoPlayLayout(w, h);
+  const s = isoToScreen(x, y, ox, oy, tw, th);
+  const padX = 36;
+  const padTop = 56;
+  const padBot = 28;
+  const sx = Math.max(padX, Math.min(w - padX, s.x));
+  const sy = Math.max(padTop, Math.min(h - padBot, s.y));
+  if (sx === s.x && sy === s.y) return { x, y };
+  return screenToIso(sx, sy, ox, oy, tw, th);
+}
+
 class IsoField {
   constructor(canvas) {
     this.canvas = canvas;
@@ -64,10 +93,11 @@ class IsoField {
     this.h = h;
   }
 
-  setScene({ tiles, monsters, heroDead }) {
+  setScene({ tiles, monsters, heroDead, respawnTimer }) {
     this.tiles = tiles || 'dirt';
     this.monsters = monsters || [];
     this.heroDead = heroDead;
+    this.respawnTimer = Number(respawnTimer) || 0;
   }
 
   addFx(kind, ix, iy, text, color) {
@@ -358,13 +388,17 @@ class IsoField {
     ctx.fillRect(0, 0, w, h);
     ctx.imageSmoothingEnabled = false;
 
-    const playW = GRID_N * TILE_W;
-    const playH = GRID_N * TILE_H;
-    const scale = Math.max(w / playW, h / playH) || 1;
-    _tw = TILE_W * scale;
-    _th = TILE_H * scale;
-    const ox = w / 2;
-    const oy = (h - GRID_N * _th) / 2;
+    const layout = isoPlayLayout(w, h);
+    _tw = layout.tw;
+    _th = layout.th;
+    const ox = layout.ox;
+    const oy = layout.oy;
+    for (const m of this.monsters) {
+      if (!m?.iso) continue;
+      const p = clampIsoPos(m.iso.x, m.iso.y, this);
+      m.iso.x = p.x;
+      m.iso.y = p.y;
+    }
 
     let minX = Infinity;
     let maxX = -Infinity;
@@ -386,7 +420,7 @@ class IsoField {
       for (let x = minX; x <= maxX; x++) {
         const s = isoToScreen(x, y, ox, oy);
         const shade = (x + y) % 2 === 0 ? pal[0] : pal[1];
-        drawTile(ctx, s.x, s.y, shade, pal[2]);
+        drawTile(ctx, s.x, s.y, shade, pal[2], pal);
       }
     }
 
@@ -444,8 +478,16 @@ class IsoField {
       ctx.fillStyle = v.color;
       if (v.kind === 'proj') {
         const s = isoToScreen(v.cx ?? v.x, v.cy ?? v.y, ox, oy);
-        ctx.fillRect(s.x - 3, s.y - 16, 6, 6);
-        ctx.fillRect(s.x - 1, s.y - 20, 2, 4);
+        ctx.globalAlpha = a * 0.35;
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y - 10, 10, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = a;
+        ctx.fillRect(s.x - 4, s.y - 18, 8, 8);
+        ctx.fillStyle = '#fff8e0';
+        ctx.fillRect(s.x - 2, s.y - 16, 4, 4);
+        ctx.fillStyle = v.color;
+        ctx.fillRect(s.x - 1, s.y - 24, 2, 6);
       } else if (v.kind === 'nova') {
         const s = isoToScreen(v.x, v.y, ox, oy);
         const r = (1 - a) * 28 + 6;
@@ -573,9 +615,14 @@ class IsoField {
         ctx.fillRect(s.x - 2, s.y - 22, 4, 12);
       } else if (v.kind === 'slash') {
         const s = isoToScreen(v.x, v.y, ox, oy);
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.arc(s.x, s.y - 12, 16, -0.4, 1.4);
+        ctx.arc(s.x, s.y - 12, 18, -0.55, 1.55);
+        ctx.stroke();
+        ctx.globalAlpha = a * 0.45;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(s.x + 3, s.y - 8, 12, -0.2, 1.2);
         ctx.stroke();
       } else if (v.kind === 'spin') {
         const s = isoToScreen(v.x, v.y, ox, oy);
@@ -608,11 +655,31 @@ class IsoField {
   drawHero(ox, oy, heroChar) {
     const s = isoToScreen(this.hero.x, this.hero.y, ox, oy);
     const pal = heroChar?.palette || ['#6a3030', '#c45a3a', '#e8c090'];
+    const cid = heroChar?.id || 'berserker';
     if (this.heroDead) {
-      drawBlob(this.ctx, s.x, s.y - 4, 16, 8, '#3a2020');
+      this.ctx.save();
+      this.ctx.translate(s.x, s.y);
+      this.ctx.rotate(-1.15);
+      drawHeroSprite(this.ctx, 0, 0, pal, 1, 0, cid, false);
+      this.ctx.restore();
+      this.ctx.fillStyle = 'rgba(80, 16, 16, 0.55)';
+      this.ctx.beginPath();
+      this.ctx.ellipse(s.x, s.y + 6, 18, 7, 0, 0, Math.PI * 2);
+      this.ctx.fill();
+      this.ctx.textAlign = 'center';
+      this.ctx.font = 'bold 12px sans-serif';
+      this.ctx.fillStyle = '#ff8a8a';
+      this.ctx.fillText('倒下', s.x, s.y - 28);
+      const left = Math.max(0, this.respawnTimer || 0);
+      this.ctx.font = 'bold 15px sans-serif';
+      this.ctx.fillStyle = '#fff4d0';
+      this.ctx.fillText(`${left.toFixed(1)}s`, s.x, s.y - 12);
+      this.ctx.textAlign = 'left';
       return;
     }
-    drawChar(this.ctx, s.x, s.y, pal, this.hero.facing, this.t + (this.spinning ? this.t * 8 : 0));
+    drawUnitShadow(this.ctx, s.x, s.y, 13, 6);
+    drawHeroAura(this.ctx, s.x, s.y, cid, this.t, this.spinning);
+    drawHeroSprite(this.ctx, s.x, s.y, pal, this.hero.facing, this.t, cid, this.spinning);
   }
 
   drawMinion(ox, oy, m) {
@@ -625,7 +692,8 @@ class IsoField {
       this.ctx.fillRect(s.x - 5, s.y - 18 + bob, 10, 5);
       this.ctx.fillRect(s.x + 4, s.y - 20 + bob, 5, 3);
     } else {
-      drawMob(this.ctx, s.x, s.y, m.pal, m.scale || 0.7, this.t + m.i);
+      drawUnitShadow(this.ctx, s.x, s.y, 9, 4);
+      drawMob(this.ctx, s.x, s.y, m.pal, m.scale || 0.7, this.t + m.i, m.race || 'humanoid', 'normal', false);
     }
     this.ctx.globalAlpha = 1;
     if (m.role === 'ranged') {
@@ -672,6 +740,7 @@ class IsoField {
   drawMonster(ox, oy, m) {
     const s = isoToScreen(m.iso.x, m.iso.y, ox, oy);
     if (m.treasureGoblin) {
+      drawUnitShadow(this.ctx, s.x, s.y, 10, 5);
       drawGoblin(this.ctx, s.x, s.y, this.t + (m.iso.x || 0));
       const pct = Math.max(0, m.hp / m.maxHp);
       this.ctx.fillStyle = '#1a1010';
@@ -690,30 +759,31 @@ class IsoField {
       : (m.kind === 'rare' || m.kind === 'hidden') ? 2
       : m.kind === 'elite' ? 1.25
       : 1;
-    drawMob(this.ctx, s.x, s.y, pal, scale, this.t + (m.iso.x || 0));
-    if (m.ranged) {
-      this.ctx.fillStyle = pal[2];
-      this.ctx.fillRect(s.x + 8 * scale, s.y - 18 * scale, 3, 12 * scale);
-      this.ctx.fillRect(s.x + 4 * scale, s.y - 14 * scale, 10 * scale, 2);
-    }
-    if (m.kind === 'hidden') {
-      this.ctx.globalAlpha = 0.4 + Math.sin(this.t * 6) * 0.2;
-      this.ctx.strokeStyle = '#c080ff';
-      this.ctx.lineWidth = 2;
-      this.ctx.beginPath();
-      this.ctx.ellipse(s.x, s.y - 10, 16, 8, 0, 0, Math.PI * 2);
-      this.ctx.stroke();
-      this.ctx.globalAlpha = 1;
-    }
+    drawUnitShadow(this.ctx, s.x, s.y, 11 * Math.min(scale, 2.2), 5 * Math.min(scale, 1.8));
+    drawKindRing(this.ctx, s.x, s.y, m.kind, scale, this.t);
+    drawMob(this.ctx, s.x, s.y, pal, scale, this.t + (m.iso.x || 0), m.race, m.kind, !!m.ranged);
     const pct = Math.max(0, m.hp / m.maxHp);
+    const barY = s.y - 38 * Math.min(scale, 2.4);
     this.ctx.fillStyle = '#1a1010';
-    this.ctx.fillRect(s.x - 14, s.y - 36 * scale, 28, 3);
-    this.ctx.fillStyle = m.isBoss ? '#e04040' : m.kind === 'hidden' ? '#c080ff' : '#70b050';
-    this.ctx.fillRect(s.x - 14, s.y - 36 * scale, 28 * pct, 3);
+    this.ctx.fillRect(s.x - 14, barY, 28, 3);
+    this.ctx.fillStyle = m.isBoss ? '#e04040' : m.kind === 'hidden' ? '#c080ff' : m.kind === 'rare' || m.kind === 'rareBoss' ? '#ffe060' : '#70b050';
+    this.ctx.fillRect(s.x - 14, barY, 28 * pct, 3);
   }
 }
 
-function drawTile(ctx, x, y, fill, edge) {
+function px(ctx, x, y, w, h, c) {
+  ctx.fillStyle = c;
+  ctx.fillRect(x, y, w, h);
+}
+
+function drawUnitShadow(ctx, x, y, rx, ry) {
+  ctx.fillStyle = 'rgba(6, 4, 8, 0.42)';
+  ctx.beginPath();
+  ctx.ellipse(x, y + 3, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawTile(ctx, x, y, fill, edge, pal) {
   ctx.beginPath();
   ctx.moveTo(x, y);
   ctx.lineTo(x + _tw / 2, y + _th / 2);
@@ -725,42 +795,300 @@ function drawTile(ctx, x, y, fill, edge) {
   ctx.strokeStyle = edge;
   ctx.lineWidth = 1;
   ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + _tw / 2, y + _th / 2);
+  ctx.strokeStyle = pal?.[1] || fill;
+  ctx.globalAlpha = 0.35;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 
-function drawChar(ctx, x, y, pal, facing, t) {
-  const bob = Math.sin(t * 8) * 1;
-  const dir = facing >= 0 ? 1 : -1;
+function drawKindRing(ctx, x, y, kind, scale, t) {
+  const boss = kind === 'boss' || kind === 'actBoss' || kind === 'riftBoss' || kind === 'rareBoss';
+  if (kind === 'normal') return;
   ctx.save();
-  ctx.translate(Math.round(x), Math.round(y + bob));
-  ctx.fillStyle = pal[0];
-  ctx.fillRect(-6 * dir, -18, 8, 10);
-  ctx.fillStyle = pal[2];
-  ctx.fillRect(-4 * dir, -24, 6, 7);
-  ctx.fillStyle = pal[1];
-  ctx.fillRect(-5, -10, 10, 8);
-  ctx.fillStyle = pal[0];
-  ctx.fillRect(-6, -2, 4, 8);
-  ctx.fillRect(2, -2, 4, 8);
-  ctx.fillStyle = '#d8c070';
-  ctx.fillRect(6 * dir, -14, 10, 3);
+  if (kind === 'elite') {
+    ctx.strokeStyle = '#88b4ff';
+    ctx.globalAlpha = 0.45 + Math.sin(t * 5) * 0.12;
+  } else if (kind === 'rare' || kind === 'rareBoss') {
+    ctx.strokeStyle = '#ffe060';
+    ctx.globalAlpha = 0.55 + Math.sin(t * 6) * 0.15;
+  } else if (kind === 'hidden') {
+    ctx.strokeStyle = '#c080ff';
+    ctx.globalAlpha = 0.4 + Math.sin(t * 7) * 0.2;
+  } else if (boss) {
+    ctx.strokeStyle = '#ff6644';
+    ctx.globalAlpha = 0.5 + Math.sin(t * 4) * 0.18;
+  } else {
+    ctx.restore();
+    return;
+  }
+  ctx.lineWidth = boss ? 2.5 : 1.5;
+  ctx.beginPath();
+  ctx.ellipse(x, y + 2, 12 + scale * 3, 5 + scale, 0, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }
 
-function drawMob(ctx, x, y, pal, scale, t) {
+function drawHeroAura(ctx, x, y, cid, t, spinning) {
+  ctx.save();
+  if (cid === 'berserker') {
+    ctx.strokeStyle = '#e05030';
+    ctx.globalAlpha = spinning ? 0.55 : 0.22;
+    ctx.lineWidth = spinning ? 2.5 : 1.5;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 2, 16 + Math.sin(t * 8) * 2, 6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    if (spinning) {
+      ctx.fillStyle = '#ff8844';
+      for (let i = 0; i < 5; i++) {
+        const a = t * 10 + i * 1.2;
+        ctx.globalAlpha = 0.45;
+        ctx.fillRect(x + Math.cos(a) * 14 - 1, y - 8 + Math.sin(a) * 5, 2, 5);
+      }
+    }
+  } else if (cid === 'paladin') {
+    ctx.strokeStyle = '#f0d070';
+    ctx.globalAlpha = 0.4 + Math.sin(t * 4) * 0.12;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 2, 15, 6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.arc(x, y - 30, 5 + Math.sin(t * 3), 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (cid === 'sorceress') {
+    const cols = ['#ff6a30', '#80d8ff', '#ffe060'];
+    for (let i = 0; i < 3; i++) {
+      const a = t * 3.2 + i * (Math.PI * 2 / 3);
+      ctx.fillStyle = cols[i];
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(x + Math.cos(a) * 12 - 2, y - 16 + Math.sin(a) * 5, 4, 4);
+    }
+  } else if (cid === 'necro') {
+    for (let i = 0; i < 4; i++) {
+      const fall = (t * 0.55 + i * 0.25) % 1;
+      ctx.fillStyle = '#b090d0';
+      ctx.globalAlpha = 0.55 * (1 - fall);
+      ctx.fillRect(x - 8 + i * 5, y - 6 - fall * 18, 2, 4);
+    }
+  } else if (cid === 'druid') {
+    for (let i = 0; i < 4; i++) {
+      const a = t * 2 + i * 1.7;
+      ctx.fillStyle = '#80c060';
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(x + Math.cos(a) * 10 - 1, y - 10 + Math.sin(a * 1.4) * 6, 3, 3);
+    }
+  } else if (cid === 'assassin') {
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#a080d0';
+    ctx.fillRect(x - 14, y - 22, 6, 16);
+  } else if (cid === 'amazon') {
+    ctx.strokeStyle = '#c8a050';
+    ctx.globalAlpha = 0.28;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 2, 13, 5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawHeroSprite(ctx, x, y, pal, facing, t, cid, spinning) {
+  const bob = Math.sin(t * 8) * 1;
+  const dir = facing >= 0 ? 1 : -1;
+  const d = pal[0];
+  const m = pal[1];
+  const l = pal[2];
+  ctx.save();
+  ctx.translate(Math.round(x), Math.round(y + bob));
+  ctx.scale(dir, 1);
+  if (cid === 'berserker') {
+    px(ctx, -8, -2, 5, 9, d);
+    px(ctx, 3, -2, 5, 9, d);
+    px(ctx, -7, -14, 14, 12, m);
+    px(ctx, -5, -12, 10, 4, '#8a4030');
+    px(ctx, -5, -24, 10, 10, l);
+    px(ctx, -6, -26, 12, 4, d);
+    px(ctx, -8, -24, 3, 3, d);
+    px(ctx, 5, -24, 3, 3, d);
+    px(ctx, -3, -21, 2, 2, '#1a1010');
+    px(ctx, 1, -21, 2, 2, '#1a1010');
+    px(ctx, 8, -16, 11, 3, '#c0c0c8');
+    px(ctx, 16, -20, 4, 10, '#8a9098');
+    px(ctx, 17, -22, 2, 3, '#e05030');
+    px(ctx, -19, -14, 11, 3, '#c0c0c8');
+    px(ctx, -20, -18, 4, 10, '#8a9098');
+    if (spinning) px(ctx, -2, -18, 4, 3, '#ffcc66');
+  } else if (cid === 'amazon') {
+    px(ctx, -5, -1, 4, 9, '#4a3020');
+    px(ctx, 2, -1, 4, 9, '#4a3020');
+    px(ctx, -6, -14, 12, 13, m);
+    px(ctx, -4, -12, 8, 5, '#3a5a78');
+    px(ctx, -4, -24, 8, 10, l);
+    px(ctx, -6, -26, 12, 5, '#c8a050');
+    px(ctx, 6, -22, 4, 10, '#c8a050');
+    px(ctx, -3, -21, 2, 2, '#203040');
+    px(ctx, 1, -21, 2, 2, '#203040');
+    px(ctx, 8, -18, 3, 16, '#6a4a28');
+    px(ctx, 7, -8, 12, 2, '#d8c080');
+    px(ctx, 18, -12, 2, 8, '#d8c080');
+  } else if (cid === 'sorceress') {
+    px(ctx, -6, -2, 12, 10, m);
+    px(ctx, -7, -14, 14, 13, d);
+    px(ctx, -5, -12, 10, 6, '#5a48a0');
+    px(ctx, -4, -25, 8, 11, l);
+    px(ctx, -6, -28, 12, 5, '#8860d0');
+    px(ctx, 7, -22, 3, 22, '#6a6088');
+    px(ctx, 6, -26, 5, 5, '#80d8ff');
+    px(ctx, 7, -28, 3, 3, '#ffe0a0');
+    px(ctx, -3, -22, 2, 2, '#302050');
+    px(ctx, 1, -22, 2, 2, '#302050');
+  } else if (cid === 'druid') {
+    px(ctx, -6, -1, 4, 8, '#3a2818');
+    px(ctx, 2, -1, 4, 8, '#3a2818');
+    px(ctx, -7, -13, 14, 12, m);
+    px(ctx, -8, -16, 16, 6, d);
+    px(ctx, -4, -24, 8, 10, l);
+    px(ctx, -8, -30, 3, 8, '#c8d090');
+    px(ctx, 5, -30, 3, 8, '#c8d090');
+    px(ctx, -10, -28, 2, 5, '#c8d090');
+    px(ctx, 8, -28, 2, 5, '#c8d090');
+    px(ctx, 7, -18, 3, 16, '#5a3a20');
+    px(ctx, 6, -22, 5, 4, '#80c060');
+    px(ctx, -3, -21, 2, 2, '#203018');
+    px(ctx, 1, -21, 2, 2, '#203018');
+  } else if (cid === 'assassin') {
+    px(ctx, -5, -1, 4, 9, '#1a1a28');
+    px(ctx, 2, -1, 4, 9, '#1a1a28');
+    px(ctx, -6, -14, 12, 13, d);
+    px(ctx, -4, -12, 8, 5, '#4a3a6a');
+    px(ctx, -4, -24, 8, 10, l);
+    px(ctx, -5, -26, 10, 6, '#1a1a2a');
+    px(ctx, -3, -21, 2, 2, '#e07090');
+    px(ctx, 1, -21, 2, 2, '#e07090');
+    px(ctx, 8, -12, 8, 3, '#c0c0c8');
+    px(ctx, 14, -14, 3, 6, '#e8d0a0');
+    px(ctx, -16, -12, 8, 3, '#c0c0c8');
+    px(ctx, -17, -14, 3, 6, '#e8d0a0');
+  } else if (cid === 'paladin') {
+    px(ctx, -6, -1, 5, 9, '#4a4030');
+    px(ctx, 2, -1, 5, 9, '#4a4030');
+    px(ctx, -7, -14, 14, 13, m);
+    px(ctx, -5, -12, 10, 5, '#f0e8c8');
+    px(ctx, -4, -24, 8, 10, l);
+    px(ctx, -5, -26, 10, 4, '#d4b050');
+    px(ctx, -3, -21, 2, 2, '#303018');
+    px(ctx, 1, -21, 2, 2, '#303018');
+    px(ctx, -14, -16, 8, 14, '#d4b050');
+    px(ctx, -12, -14, 4, 10, '#f0e8c8');
+    px(ctx, 8, -18, 4, 14, '#c0c0c8');
+    px(ctx, 7, -22, 6, 5, '#d4b050');
+  } else if (cid === 'necro') {
+    px(ctx, -5, -1, 4, 8, '#2a1a2a');
+    px(ctx, 2, -1, 4, 8, '#2a1a2a');
+    px(ctx, -7, -14, 14, 13, d);
+    px(ctx, -5, -12, 10, 6, '#4a3050');
+    px(ctx, -5, -26, 10, 12, m);
+    px(ctx, -6, -28, 12, 5, '#1a1020');
+    px(ctx, -3, -22, 2, 2, '#80ff90');
+    px(ctx, 1, -22, 2, 2, '#80ff90');
+    px(ctx, 8, -20, 3, 20, '#d8d0c0');
+    px(ctx, 7, -24, 5, 5, '#f0e8d8');
+    px(ctx, 8, -26, 2, 2, '#80ff90');
+  } else {
+    px(ctx, -6, -2, 4, 8, d);
+    px(ctx, 2, -2, 4, 8, d);
+    px(ctx, -5, -10, 10, 8, m);
+    px(ctx, -4, -24, 6, 7, l);
+    px(ctx, 6, -14, 10, 3, '#d8c070');
+  }
+  ctx.restore();
+}
+
+function drawMob(ctx, x, y, pal, scale, t, race, kind, ranged) {
   const bob = Math.sin(t * 6) * 1.2;
+  const d = pal[0];
+  const m = pal[1];
+  const l = pal[2];
   ctx.save();
   ctx.translate(Math.round(x), Math.round(y + bob));
   ctx.scale(scale, scale);
-  ctx.fillStyle = pal[0];
-  ctx.fillRect(-8, -14, 16, 14);
-  ctx.fillStyle = pal[1];
-  ctx.fillRect(-6, -22, 12, 10);
-  ctx.fillStyle = pal[2];
-  ctx.fillRect(-4, -20, 3, 3);
-  ctx.fillRect(2, -20, 3, 3);
-  ctx.fillStyle = pal[0];
-  ctx.fillRect(-7, 0, 5, 7);
-  ctx.fillRect(2, 0, 5, 7);
+  if (race === 'undead') {
+    px(ctx, -6, 0, 4, 7, d);
+    px(ctx, 2, 0, 4, 7, d);
+    px(ctx, -7, -14, 14, 12, d);
+    px(ctx, -5, -12, 3, 8, l);
+    px(ctx, 2, -12, 3, 8, l);
+    px(ctx, -5, -24, 10, 10, m);
+    px(ctx, -4, -22, 2, 2, '#88ff88');
+    px(ctx, 2, -22, 2, 2, '#88ff88');
+    px(ctx, -2, -18, 4, 2, '#203020');
+  } else if (race === 'demon') {
+    px(ctx, -7, 0, 5, 7, d);
+    px(ctx, 2, 0, 5, 7, d);
+    px(ctx, -8, -14, 16, 13, d);
+    px(ctx, -6, -12, 12, 6, m);
+    px(ctx, -5, -24, 10, 10, m);
+    px(ctx, -8, -30, 4, 8, l);
+    px(ctx, 4, -30, 4, 8, l);
+    px(ctx, -4, -21, 2, 2, '#ffe060');
+    px(ctx, 2, -21, 2, 2, '#ffe060');
+    px(ctx, 8, -8, 6, 3, d);
+  } else if (race === 'beast') {
+    px(ctx, -10, -2, 6, 8, d);
+    px(ctx, 4, -2, 6, 8, d);
+    px(ctx, -9, -12, 18, 11, m);
+    px(ctx, 6, -16, 10, 8, d);
+    px(ctx, 12, -14, 5, 4, l);
+    px(ctx, -8, -18, 4, 4, d);
+    px(ctx, 8, -14, 2, 2, '#1a1010');
+    px(ctx, 14, -14, 2, 2, '#1a1010');
+  } else if (race === 'insect') {
+    px(ctx, -10, 1, 5, 4, d);
+    px(ctx, 5, 1, 5, 4, d);
+    px(ctx, -4, 2, 8, 5, d);
+    px(ctx, -8, -12, 16, 12, m);
+    px(ctx, -5, -22, 10, 10, d);
+    px(ctx, -4, -20, 3, 3, l);
+    px(ctx, 1, -20, 3, 3, l);
+    px(ctx, 8, -10, 7, 4, l);
+  } else if (race === 'construct') {
+    px(ctx, -7, 0, 5, 7, d);
+    px(ctx, 2, 0, 5, 7, d);
+    px(ctx, -8, -14, 16, 14, m);
+    px(ctx, -6, -12, 4, 4, l);
+    px(ctx, 2, -12, 4, 4, l);
+    px(ctx, -6, -24, 12, 10, d);
+    px(ctx, -3, -21, 2, 2, '#80d8ff');
+    px(ctx, 1, -21, 2, 2, '#80d8ff');
+    px(ctx, -2, -8, 4, 3, '#c0c0c8');
+  } else if (race === 'elemental') {
+    px(ctx, -7, -4, 14, 12, d);
+    px(ctx, -5, -16, 10, 12, m);
+    px(ctx, -3, -22, 6, 6, l);
+    px(ctx, -2, -26, 4, 4, '#fff0c0');
+    ctx.globalAlpha = 0.45;
+    px(ctx, -9, -10, 18, 6, m);
+    ctx.globalAlpha = 1;
+  } else {
+    px(ctx, -6, 0, 4, 7, d);
+    px(ctx, 2, 0, 4, 7, d);
+    px(ctx, -7, -14, 14, 13, m);
+    px(ctx, -5, -12, 10, 5, d);
+    px(ctx, -5, -24, 10, 10, l);
+    px(ctx, -3, -21, 2, 2, '#201818');
+    px(ctx, 1, -21, 2, 2, '#201818');
+  }
+  if (ranged && race !== 'beast' && race !== 'elemental') {
+    px(ctx, 8, -18, 3, 14, l);
+    px(ctx, 7, -12, 11, 2, d);
+  }
+  if (kind === 'hidden') {
+    ctx.globalAlpha = 0.35;
+    px(ctx, -10, -20, 20, 16, '#c080ff');
+  }
   ctx.restore();
 }
 
@@ -768,32 +1096,30 @@ function drawGoblin(ctx, x, y, t) {
   const bob = Math.sin(t * 10) * 1.6;
   ctx.save();
   ctx.translate(Math.round(x), Math.round(y + bob));
-  ctx.fillStyle = '#1e6a28';
-  ctx.fillRect(-7, -12, 14, 12);
-  ctx.fillStyle = '#3a8a30';
-  ctx.fillRect(-5, -20, 10, 9);
-  ctx.fillStyle = '#ffe070';
-  ctx.fillRect(-3, -18, 2, 2);
-  ctx.fillRect(2, -18, 2, 2);
-  ctx.fillStyle = '#c07020';
-  ctx.fillRect(5, -10, 9, 10);
-  ctx.fillStyle = '#e8c040';
-  ctx.fillRect(7, -8, 5, 4);
-  ctx.fillStyle = '#1e6a28';
-  ctx.fillRect(-6, 0, 4, 6);
-  ctx.fillRect(2, 0, 4, 6);
+  px(ctx, -6, 0, 4, 6, '#1e6a28');
+  px(ctx, 2, 0, 4, 6, '#1e6a28');
+  px(ctx, -7, -12, 14, 12, '#1e6a28');
+  px(ctx, -5, -10, 10, 5, '#3a8a30');
+  px(ctx, -5, -20, 10, 9, '#3a8a30');
+  px(ctx, -7, -22, 3, 5, '#1e6a28');
+  px(ctx, 4, -22, 3, 5, '#1e6a28');
+  px(ctx, -3, -18, 2, 2, '#ffe070');
+  px(ctx, 2, -18, 2, 2, '#ffe070');
+  px(ctx, 5, -10, 10, 11, '#c07020');
+  px(ctx, 7, -8, 6, 5, '#e8c040');
+  px(ctx, 8, -6, 4, 2, '#ffe080');
   ctx.restore();
 }
 
 function racePalette(race, kind) {
   const base = {
-    undead: ['#5a6a5a', '#c8d0b0', '#88aa66'],
-    demon: ['#6a2020', '#c04030', '#f0a040'],
-    beast: ['#5a3a20', '#8a6030', '#e0c080'],
+    undead: ['#4a5848', '#c8d0b0', '#88aa66'],
+    demon: ['#5a1818', '#c04030', '#f0a040'],
+    beast: ['#4a3018', '#8a6030', '#e0c080'],
     humanoid: ['#3a3a4a', '#7060a0', '#e0d0c0'],
-    insect: ['#2a4a20', '#50a030', '#c0f060'],
-    construct: ['#4a4a50', '#808088', '#c0c0c8'],
-    elemental: ['#4a2020', '#e05020', '#ffc040'],
+    insect: ['#244018', '#50a030', '#c0f060'],
+    construct: ['#3a3a44', '#808088', '#c0c0c8'],
+    elemental: ['#4a1810', '#e05020', '#ffc040'],
   }[race] || ['#404050', '#808090', '#c0c0d0'];
   if (kind === 'hidden') return ['#2a1840', '#a060e0', '#e8c0ff'];
   if (kind === 'rare' || kind === 'rareBoss') return [base[0], '#d4b020', base[2]];

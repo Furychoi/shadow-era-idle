@@ -85,6 +85,7 @@ function runSlice(dt, paint) {
       tiles: map?.tiles || 'dirt',
       monsters: pack,
       heroDead: !!hero.isDead,
+      respawnTimer: hero.respawnTimer || 0,
     });
     window.isoField.syncMinions(hero.isDead ? [] : getSummonRoster(hero));
     window.isoField.turrets = hero.isDead ? [] : (combat.turrets || []);
@@ -93,7 +94,7 @@ function runSlice(dt, paint) {
     window.isoField.tick(dt, look, calcHeroStats(hero, { useCombatBuffs: true, buffs: combat.buffs }).attackRange);
     if (paint) window.isoField.draw(CHARACTERS[hero.charId]);
   }
-  if (paint && hudAcc >= 0.12) {
+  if (paint && hudAcc >= (hero?.isDead ? 0.05 : 0.12)) {
     hudAcc = 0;
     renderAll();
   }
@@ -189,6 +190,7 @@ function spawnPack(map) {
     if (hero.riftBossReady) {
       const g = createRiftGuardian(map, { worldMult: worldMonsterMult(gameState, hero) });
       combat.monsters = [g];
+      pinMonsterIso(g.iso);
       combat.target = g;
       combat.attackTimer = 0.4;
       combat.spawnTimer = 1.15;
@@ -201,6 +203,7 @@ function spawnPack(map) {
   if (chance > 0 && Math.random() < chance) {
     const m = createMonster(map, { forceBoss: true, bossId: map.bossId, worldMult: worldMonsterMult(gameState) });
     combat.monsters = [m];
+    pinMonsterIso(m.iso);
     combat.bossPity = 0;
     const pct = Math.round(chance * 100);
     addLog({ type: 'boss', text: `章节首领 ${m.name} 出现了！（${pct}%）${monsterSkillLabel(m) ? ` 技能：${monsterSkillLabel(m)}` : ''}` });
@@ -222,10 +225,12 @@ function spawnPack(map) {
     const m = createMonster(map, { clearFactor, worldMult: worldMonsterMult(gameState) });
     m.iso.x += (i % 4) * 0.52;
     m.iso.y += Math.floor(i / 4) * 0.48;
+    pinMonsterIso(m.iso);
     combat.monsters.push(m);
   }
   if (Math.random() < goblinSpawnChance(clearFactor)) {
     const gob = createTreasureGoblin(map, { worldMult: worldMonsterMult(gameState) });
+    pinMonsterIso(gob.iso);
     combat.monsters.push(gob);
     addLog({ type: 'boss', text: '宝藏哥布林出现了！正在逃跑…' });
   }
@@ -239,7 +244,15 @@ function spawnPack(map) {
 }
 
 function clampIso(v) {
-  return Math.max(0.6, Math.min(GRID_N - 1.2, v));
+  return clampIsoAxis(v);
+}
+
+function pinMonsterIso(iso) {
+  if (!iso) return iso;
+  const p = clampIsoPos(iso.x, iso.y);
+  iso.x = p.x;
+  iso.y = p.y;
+  return iso;
 }
 
 function tickMonsterAI(dt, heroIso, stats) {
@@ -270,23 +283,26 @@ function tickMonsterAI(dt, heroIso, stats) {
     if (taunted) {
       const pull = Math.max(spd, 3.4);
       if (dist > hold) {
-        m.iso.x = clampIso(m.iso.x + (dx / dist) * pull * dt);
-        m.iso.y = clampIso(m.iso.y + (dy / dist) * pull * dt);
+        m.iso.x = m.iso.x + (dx / dist) * pull * dt;
+        m.iso.y = m.iso.y + (dy / dist) * pull * dt;
       }
+      pinMonsterIso(m.iso);
       continue;
     }
     if (m.flee) {
-      m.iso.x = clampIso(m.iso.x - (dx / dist) * spd * dt);
-      m.iso.y = clampIso(m.iso.y - (dy / dist) * spd * dt);
+      m.iso.x = m.iso.x - (dx / dist) * spd * dt;
+      m.iso.y = m.iso.y - (dy / dist) * spd * dt;
+      pinMonsterIso(m.iso);
       continue;
     }
     if (m.ranged && dist < hold * 0.55) {
-      m.iso.x = clampIso(m.iso.x - (dx / dist) * spd * 0.7 * dt);
-      m.iso.y = clampIso(m.iso.y - (dy / dist) * spd * 0.7 * dt);
+      m.iso.x = m.iso.x - (dx / dist) * spd * 0.7 * dt;
+      m.iso.y = m.iso.y - (dy / dist) * spd * 0.7 * dt;
     } else if (dist > hold) {
-      m.iso.x = clampIso(m.iso.x + (dx / dist) * spd * dt);
-      m.iso.y = clampIso(m.iso.y + (dy / dist) * spd * dt);
+      m.iso.x = m.iso.x + (dx / dist) * spd * dt;
+      m.iso.y = m.iso.y + (dy / dist) * spd * dt;
     }
+    pinMonsterIso(m.iso);
   }
 }
 
@@ -474,6 +490,7 @@ function tickMonsterSkills(dt, hero, heroIso, stats) {
         break;
       }
     }
+    pinMonsterIso(m.iso);
   }
 }
 
@@ -617,6 +634,7 @@ function updateCombat(dt) {
 
   if (hero.isDead) {
     hero.respawnTimer -= dt;
+    if (typeof syncDeathUi === 'function') syncDeathUi(hero);
     if (hero.respawnTimer <= 0) {
       hero.isDead = false;
       hero.currentHp = calcHeroStats(hero, { useCombatBuffs: true, buffs: combat.buffs }).maxHp;
@@ -624,6 +642,7 @@ function updateCombat(dt) {
       combat.zones = [];
       combat.turrets = [];
       addLog({ type: 'info', text: `${CHARACTERS[hero.charId].name} 已复活` });
+      if (typeof syncDeathUi === 'function') syncDeathUi(hero);
     }
     return;
   }
@@ -1231,9 +1250,7 @@ function spawnDrops(hero, monster, extraItems) {
   if (monster.treasureGoblin) {
     const piles = splitGoldPiles(monster.gold || 120, monster.goldPiles || 6);
     piles.forEach((amt, i) => spawnGoldDrop(mx, my, amt, i, piles.length));
-    const nItems = Math.max(1, dropRolls(monster.lootRolls || 5));
-    const items = extraItems ? extraItems.slice() : [];
-    while (items.length < nItems) items.push(generateLoot(monster.level, null, 'goblin', hero.charId, gameState));
+    const items = rollMonsterItems(gameState, hero, monster, extraItems);
     items.forEach((item, i) => {
       const q = QUALITY[item.quality] || QUALITY.normal;
       const ang = (i / items.length) * Math.PI * 2;
@@ -1255,18 +1272,8 @@ function spawnDrops(hero, monster, extraItems) {
     addLog({ type: 'loot', text: `宝藏哥布林爆出 ${piles.length} 袋金币与 ${items.length} 件装备` });
     return;
   }
-  spawnGoldDrop(mx, my, monster.isBoss ? 250 : (monster.gold || 5));
-  const items = extraItems ? extraItems.slice() : [];
-  let expected = 0;
-  if (monster.kind === 'hidden') expected = 2.5;
-  else if (monster.kind === 'rare' || monster.kind === 'rareBoss') expected = 1.55;
-  else if (monster.kind === 'elite') expected = 1.18;
-  else if (monster.isBoss || monster.kind === 'actBoss' || monster.kind === 'riftBoss') expected = 2;
-  else expected = 0.1;
-  const rolls = dropRolls(expected);
-  if (!items.length) {
-    for (let i = 0; i < rolls; i++) items.push(generateLoot(monster.level, null, monster.kind, hero.charId, gameState));
-  }
+  spawnGoldDrop(mx, my, monsterKillGold(monster));
+  const items = rollMonsterItems(gameState, hero, monster, extraItems);
   for (const item of items) {
     const q = QUALITY[item.quality] || QUALITY.normal;
     window.isoField?.addDrop({
@@ -1419,6 +1426,7 @@ function handleDeath(hero) {
   combat.heroDebuffs = {};
   combat.heroStun = 0;
   combat.heroDots = [];
+  if (typeof syncDeathUi === 'function') syncDeathUi(hero);
 }
 
 gameState.offlineClaimed = false;

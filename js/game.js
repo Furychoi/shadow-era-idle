@@ -1031,21 +1031,73 @@ function tryAutoNextMap(state, hero, unlockedDiff) {
   return null;
 }
 
-function idleKillInterval(hero, map) {
+function idleKillInterval(hero, map, state) {
   const avgLevel = ((map?.levelMin || 1) + (map?.levelMax || 1)) / 2;
   const dps = Math.max(1, calcDPS(hero));
-  return Math.max(0.35, (28 + avgLevel * 22) / dps);
+  const ms = monsterStats(Math.floor(avgLevel));
+  const w = typeof worldMonsterMult === 'function' ? worldMonsterMult(state, hero) : 1;
+  const rift = map?.isRift && typeof riftDifficultyMult === 'function'
+    ? riftDifficultyMult(map.riftFloor, 'normal') : 1;
+  const pack = typeof mapPackRange === 'function'
+    ? mapPackRange(map, typeof getWorldDiff === 'function' ? getWorldDiff(state, hero) : null)
+    : { packMin: 3, packMax: 6 };
+  const packN = Math.max(1, (pack.packMin + pack.packMax) / 2);
+  const spawnShare = 1.15 / packN;
+  return Math.max(0.2, (ms.hp * w * rift) / dps + 0.4 + spawnShare);
+}
+
+function monsterDropExpected(monster) {
+  if (!monster) return 0.1;
+  if (monster.treasureGoblin) return Math.max(1, monster.lootRolls || 5);
+  if (monster.kind === 'hidden') return 2.5;
+  if (monster.kind === 'rare' || monster.kind === 'rareBoss') return 1.55;
+  if (monster.kind === 'elite') return 1.18;
+  if (monster.isBoss || monster.kind === 'actBoss' || monster.kind === 'riftBoss') return 2;
+  return 0.1;
+}
+
+function monsterKillGold(monster) {
+  if (!monster) return 5;
+  if (monster.treasureGoblin) return monster.gold || 120;
+  if (monster.isBoss) return 250;
+  return monster.gold || 5;
+}
+
+function rollMonsterItems(state, hero, monster, extraItems) {
+  const items = extraItems ? extraItems.slice() : [];
+  if (monster?.treasureGoblin) {
+    const n = Math.max(1, dropRolls(monster.lootRolls || 5));
+    while (items.length < n) {
+      items.push(generateLoot(monster.level, null, 'goblin', hero.charId, state));
+    }
+    return items;
+  }
+  const rolls = dropRolls(monsterDropExpected(monster));
+  if (!items.length) {
+    for (let i = 0; i < rolls; i++) {
+      items.push(generateLoot(monster.level, null, monster.kind || 'normal', hero.charId, state));
+    }
+  }
+  return items;
+}
+
+function applyIdleMonsterRewards(state, hero, monster) {
+  grantKillExp(hero, monster.exp || 4, monster.level);
+  levelUpHero(hero);
+  hero.gold = (hero.gold || 0) + monsterKillGold(monster);
+  hero.kills = (hero.kills || 0) + 1;
+  for (const item of rollMonsterItems(state, hero, monster)) {
+    addLoot(state, item, hero);
+  }
 }
 
 function applyOneIdleKill(state, hero, map) {
-  const avg = ((map.levelMin || 1) + (map.levelMax || 1)) / 2;
-  grantKillExp(hero, Math.floor(18 + avg * 11), avg);
-  levelUpHero(hero);
-  hero.gold = (hero.gold || 0) + Math.floor(5 + avg * 3);
-  hero.kills = (hero.kills || 0) + 1;
-  if (dropChance(0.018)) {
-    addLoot(state, generateLoot(avg, null, 'normal', hero.charId, state), hero);
-  }
+  const clearFactor = mapClearFactor(state, map, hero);
+  const worldMult = worldMonsterMult(state, hero);
+  const monster = (typeof goblinSpawnChance === 'function' && Math.random() < goblinSpawnChance(clearFactor))
+    ? createTreasureGoblin(map, { worldMult })
+    : createMonster(map, { clearFactor, worldMult });
+  applyIdleMonsterRewards(state, hero, monster);
   if (hero.currentMap === 'rift' || map.isRift) {
     ensureRiftHero(hero);
     if (!hero.riftBossReady) {
@@ -1088,7 +1140,7 @@ function applyIdleHero(state, hero, dt, opts = {}) {
     if (!map) return;
     if (map.isBoss && map.bossId && !campaignOf(state, hero).bossesKilled?.[map.bossId] && isChapterBossReady(state, map, hero)) return;
     if ((hero.currentMap === 'rift' || map.isRift) && hero.riftBossReady) return;
-    const interval = idleKillInterval(hero, map);
+    const interval = idleKillInterval(hero, map, state);
     if (hero._idleAcc < interval) return;
     hero._idleAcc -= interval;
     const mapId = hero.currentMap;
