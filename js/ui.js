@@ -12,6 +12,7 @@
     renderShop();
     wire();
     refresh();
+    if (!game.bestWave) $('help-overlay').classList.add('open');
   }
 
   function wire() {
@@ -98,11 +99,12 @@
       if (el) el.textContent = String(game.res[k] || 0);
     }
     $('wave-num').textContent = String(game.wave);
-    const preview = game.nextWavePreview();
-    const nextNo = game.wave + 1;
+    const preview = game.waveAlive ? TD.composeWave(game.wave) : game.nextWavePreview();
+    const dirNames = preview.dirs.map((id) => TD.DIRS.find((d) => d.id === id).name).join('、');
+    const nextNo = game.waveAlive ? game.wave : game.wave + 1;
     $('wave-next').textContent = game.waveAlive
-      ? `进行中 · ${TD.waveLabel(game.wave)}`
-      : `下一波 ${nextNo} · ${TD.waveLabel(nextNo)} · ${preview.dirs.length} 路`;
+      ? `进行中 · ${TD.waveLabel(game.wave)} · ${dirNames}`
+      : `下一波 ${nextNo} · ${TD.waveLabel(nextNo)} · ${dirNames}`;
     $('core-hp').textContent = `${game.coreHp} / ${game.coreMax}`;
     $('core-bar').style.width = `${(100 * game.coreHp / game.coreMax)}%`;
     $('stat-kills').textContent = String(game.kills);

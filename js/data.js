@@ -7,7 +7,7 @@
   TD.GRID = 21;
   TD.CORE_R = 1;
   TD.MAX_TOWER_LV = 5;
-  TD.START_GOLD = 160;
+  TD.START_GOLD = 200;
   TD.CORE_HP = 100;
   TD.ARMOR_K = 40;
 
@@ -37,11 +37,11 @@
   TD.N = 2.4;
   TD.M = 2.0;
   TD.KINDS = {
-    normal: { id: 'normal', name: '普通', size: 1, hpN: 1, defM: 1, leak: 4, gold: 5, color: '#b8c4a8', speed: 1.28 },
-    elite: { id: 'elite', name: '精英', size: 2, hpN: TD.N, defM: 1, leak: 8, gold: 14, color: '#6ea8ff', speed: 1.12 },
-    miniBoss: { id: 'miniBoss', name: '小Boss', size: 3, hpN: TD.N * 3.2, defM: TD.M, leak: 16, gold: 36, color: '#e0b84a', speed: 0.92 },
-    boss: { id: 'boss', name: 'Boss', size: 4, hpN: TD.N * 3.2 * 1.5, defM: TD.M * 1.5, leak: 28, gold: 70, color: '#ff6a4a', speed: 0.78 },
-    powerBoss: { id: 'powerBoss', name: '强力Boss', size: 6, hpN: TD.N * 3.2 * 2, defM: TD.M * 2, leak: 45, gold: 140, color: '#c060ff', speed: 0.62 },
+    normal: { id: 'normal', name: '普通', size: 1, hpN: 1, defM: 1, leak: 2, gold: 6, color: '#b8c4a8', speed: 1.22 },
+    elite: { id: 'elite', name: '精英', size: 2, hpN: TD.N, defM: 1, leak: 4, gold: 16, color: '#6ea8ff', speed: 1.08 },
+    miniBoss: { id: 'miniBoss', name: '小Boss', size: 3, hpN: TD.N * 3.2, defM: TD.M, leak: 8, gold: 40, color: '#e0b84a', speed: 0.9 },
+    boss: { id: 'boss', name: 'Boss', size: 4, hpN: TD.N * 3.2 * 1.5, defM: TD.M * 1.5, leak: 16, gold: 80, color: '#ff6a4a', speed: 0.76 },
+    powerBoss: { id: 'powerBoss', name: '强力Boss', size: 6, hpN: TD.N * 3.2 * 2, defM: TD.M * 2, leak: 28, gold: 150, color: '#c060ff', speed: 0.6 },
   };
 
   TD.TOWERS = {
@@ -49,7 +49,7 @@
       id: 'blade', name: '剑卫塔', icon: '⚔',
       category: 'combat', combatType: 'melee',
       blurb: '近战 · 范围小 · 范围内 AOE · 伤害高 · 攻速普通',
-      range: 1.85, interval: 1.05, damage: 26, aoe: 'inRange',
+      range: 1.9, interval: 1.0, damage: 30, aoe: 'inRange',
       color: '#c45a3a', color2: '#e8c090',
       build: { gold: 65 },
       upgradeRes: { stone: 5, mineral: 3 },
@@ -58,7 +58,7 @@
       id: 'archer', name: '连弩塔', icon: '🏹',
       category: 'combat', combatType: 'ranged',
       blurb: '远程 · 范围大 · 单体 · 伤害低 · 攻速高',
-      range: 4.8, interval: 0.38, damage: 9, aoe: null,
+      range: 4.8, interval: 0.36, damage: 11, aoe: null,
       color: '#3a6a4a', color2: '#c8d090',
       build: { gold: 55 },
       upgradeRes: { mineral: 4, wood: 5 },
@@ -347,9 +347,9 @@
 
   TD.pickDirs = function pickDirs(wave) {
     const count = TD.dirCountForWave(wave);
-    const start = (wave - 1) % 8;
+    const start = ((wave - 1) * 2) % 8;
     const out = [];
-    for (let i = 0; i < count; i++) out.push(TD.DIR_IDS[(start + i * 3) % 8]);
+    for (let i = 0; i < count; i++) out.push(TD.DIR_IDS[(start + i) % 8]);
     return out;
   };
 

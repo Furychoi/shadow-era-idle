@@ -157,11 +157,13 @@
         const px = ox + (dir.x + 0.5) * size;
         const py = oy + (dir.y + 0.5) * size;
         const on = active.has(dir.id);
+        const pulse = on ? 1 + Math.sin(this.t * 5) * 0.12 : 1;
         ctx.beginPath();
-        ctx.arc(px, py, size * 0.38, 0, Math.PI * 2);
-        ctx.fillStyle = on ? 'rgba(200,80,60,0.85)' : 'rgba(80,50,60,0.5)';
+        ctx.arc(px, py, size * (on ? 0.46 : 0.32) * pulse, 0, Math.PI * 2);
+        ctx.fillStyle = on ? 'rgba(220,70,50,0.92)' : 'rgba(80,50,60,0.45)';
         ctx.fill();
-        ctx.strokeStyle = on ? '#ffb090' : '#604850';
+        ctx.strokeStyle = on ? '#ffd0a0' : '#604850';
+        ctx.lineWidth = on ? 2 : 1;
         ctx.stroke();
         ctx.fillStyle = '#f0e0d0';
         ctx.font = `${Math.max(8, size * 0.28)}px sans-serif`;

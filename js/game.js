@@ -512,8 +512,8 @@
         if (!this.pending.length && !this.monsters.length && !this.projectiles.length) {
           this.waveAlive = false;
           this.phase = 'ready';
-          this.prepareLeft = 8;
-          this.earlyBonus = 8;
+          this.prepareLeft = 12;
+          this.earlyBonus = 12;
           this.bannerMsg(`第 ${this.wave} 波肃清`, 1.6);
           this.logMsg('波次结束。建造、升级，或提前开始下一波。');
           if (this.wave > this.bestWave) {
