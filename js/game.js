@@ -2768,8 +2768,9 @@ function itemPowerScore(item, hero) {
 
 function heroGearScore(hero) {
   if (!hero) return 0;
-  const dps = typeof calcDPS === 'function' ? calcDPS(hero) : 1;
-  const ehp = typeof calcEHP === 'function' ? calcEHP(hero, hero.level || 10) : 1;
+  const stats = typeof calcHeroStats === 'function' ? calcHeroStats(hero) : null;
+  const dps = typeof calcDPS === 'function' ? calcDPS(hero, stats) : 1;
+  const ehp = typeof calcEHP === 'function' ? calcEHP(hero, hero.level || 10, stats) : 1;
   return combatPowerScore(dps, ehp);
 }
 

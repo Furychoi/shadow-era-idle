@@ -899,8 +899,8 @@ function applySetBonuses(stats, equipment) {
   }
 }
 
-function calcDPS(hero) {
-  const stats = calcHeroStats(hero);
+function calcDPS(hero, statsOverride) {
+  const stats = statsOverride || calcHeroStats(hero);
   const charDef = CHARACTERS[hero.charId];
   const mainStat = stats[charDef.mainStat] || 10;
   const baseDmg = stats.damage * (1 + mainStat / 100) * (1 + stats.physDmgPct);
@@ -923,8 +923,8 @@ function calcDPS(hero) {
   return Math.floor(dps);
 }
 
-function calcEHP(hero, monsterLevel = 10) {
-  const stats = calcHeroStats(hero);
+function calcEHP(hero, monsterLevel = 10, statsOverride) {
+  const stats = statsOverride || calcHeroStats(hero);
   const armorFactor = 1 + stats.armor / (stats.armor + 50 * monsterLevel);
   return Math.floor(stats.maxHp * armorFactor / Math.max(0.25, 1 - stats.damageReduction));
 }

@@ -1226,7 +1226,7 @@ function renderCampAttrs(hero) {
       ['护甲', stats.armor],
     ],
     [
-      ['DPS', calcDPS(hero).toLocaleString()],
+      ['DPS', calcDPS(hero, stats).toLocaleString()],
       ['攻速', `${stats.attacksPerSec.toFixed(2)}/s`],
       ['攻击距离', stats.attackRange.toFixed(1)],
       ['暴击', `${Math.round(stats.critRate * 100)}%`],
@@ -1237,7 +1237,7 @@ function renderCampAttrs(hero) {
       ['技能点', hero.skillPoints || 0],
     ],
     [
-      ['EHP', calcEHP(hero, (map.levelMin + map.levelMax) / 2).toLocaleString()],
+      ['EHP', calcEHP(hero, (map.levelMin + map.levelMax) / 2, stats).toLocaleString()],
       ['减伤', `${Math.round(stats.damageReduction * 100)}%`],
       ['全抗', `${Math.round((stats.allRes || 0) * 100)}%`],
       ['吸血', `${Math.round((stats.lifesteal || 0) * 100)}%`],
@@ -1663,9 +1663,13 @@ function renderCampGear() {
   if (jq && document.activeElement !== jq) jq.value = gameState.junkQuality || 'magic';
   const multiBtn = document.getElementById('btn-inv-multi');
   if (multiBtn) multiBtn.classList.toggle('on', invMultiMode);
-  fillBuildPop(hero);
-  document.getElementById('build-pop')?.toggleAttribute('hidden', !buildPopOpen);
-  if (buildPopOpen) placeBuildPop();
+  if (buildPopOpen) {
+    fillBuildPop(hero);
+    document.getElementById('build-pop')?.removeAttribute('hidden');
+    placeBuildPop();
+  } else {
+    document.getElementById('build-pop')?.setAttribute('hidden', '');
+  }
   const bulk = document.getElementById('inv-bulk-bar');
   if (bulk) {
     const n = selInvUids.size;
@@ -2344,6 +2348,7 @@ function mapCardMarkup(extraClass = '', attrs = '') {
 
 function renderMapSelect() {
   const hero = getActiveHero(gameState);
+  const heroPower = heroGearScore(hero);
   const actsEl = document.getElementById('map-acts');
   const container = document.getElementById('map-list');
   const diffEl = document.getElementById('diff-select');
@@ -2457,7 +2462,7 @@ function renderMapSelect() {
     const dot = btn.querySelector('.map-new-dot');
     if (tag) tag.hidden = !isNew;
     if (dot) dot.hidden = !isNew;
-    fillMapScore(btn, rmap, heroGearScore(hero));
+    fillMapScore(btn, rmap, heroPower);
     return;
   }
 
@@ -2498,11 +2503,13 @@ function renderMapSelect() {
     const dot = btn.querySelector('.map-new-dot');
     if (tag) tag.hidden = !isNew;
     if (dot) dot.hidden = !isNew;
-    fillMapScore(btn, map, heroGearScore(hero));
+    fillMapScore(btn, map, heroPower);
   });
 }
 
 function checkOfflineReward() {
+  const elapsed = Date.now() - (gameState.lastSaveTime || Date.now());
+  if (elapsed < 360000) return;
   const rewards = calcOfflineRewards(gameState);
   const btn = document.getElementById('btn-offline');
   if (rewards && rewards.hours >= 0.1 && !gameState.offlineClaimed) btn.classList.add('glow');
@@ -2641,42 +2648,40 @@ function switchActiveChar(id) {
   if (!(gameState.unlockedChars || []).includes(id) || !gameState.heroes[id]) return;
   markCharSeen(id);
   const switching = gameState.activeCharId !== id;
-  if (switching) {
-    gameState.activeCharId = id;
-    ensureWorldDiff(gameState);
-    syncCampaignAlias(gameState);
-    knownMapUnlocks = null;
-    mapActFollow = true;
-    mapActTab = 0;
-    hideItemTip();
-    selSlot = 'weapon';
-    selInvUid = null;
-    selInvUids = new Set();
+  if (!switching) {
+    lastBuildAnchorSel = `.char-tab[data-char="${id}"]`;
+    buildPopOpen = true;
+    autosellOpen = false;
+    document.getElementById('autosell-pop')?.setAttribute('hidden', '');
     lastCampSig = '';
-    renderCharTabs();
-    const nameEl = document.getElementById('hero-name');
-    if (nameEl) nameEl.textContent = `${CHARACTERS[id]?.name || id}`;
-  }
-  lastBuildAnchorSel = `.char-tab[data-char="${id}"]`;
-  buildPopOpen = true;
-  autosellOpen = false;
-  document.getElementById('autosell-pop')?.setAttribute('hidden', '');
-  const finish = () => {
-    if (gameState.activeCharId !== id) return;
-    const nh = getActiveHero(gameState);
-    if (switching) {
-      nh.currentHp = calcHeroStats(nh).maxHp;
-      clampHeroResource(nh);
-      resetFieldForZone();
-    }
-    renderAll();
+    renderHeroPanel();
     placeBuildPop();
-  };
-  if (switching) requestAnimationFrame(finish);
-  else {
-    lastCampSig = '';
-    finish();
+    return;
   }
+  gameState.activeCharId = id;
+  ensureWorldDiff(gameState);
+  syncCampaignAlias(gameState);
+  knownMapUnlocks = null;
+  mapActFollow = true;
+  mapActTab = 0;
+  hideItemTip();
+  selSlot = 'weapon';
+  selInvUid = null;
+  selInvUids = new Set();
+  lastCampSig = '';
+  buildPopOpen = false;
+  autosellOpen = false;
+  document.getElementById('build-pop')?.setAttribute('hidden', '');
+  document.getElementById('autosell-pop')?.setAttribute('hidden', '');
+  const nh = getActiveHero(gameState);
+  const stats = calcHeroStats(nh);
+  nh.currentHp = stats.maxHp;
+  clampHeroResource(nh, stats);
+  resetFieldForZone();
+  renderCharTabs();
+  const nameEl = document.getElementById('hero-name');
+  if (nameEl) nameEl.textContent = `${CHARACTERS[id]?.name || id} Lv.${nh.level}`;
+  renderAll();
 }
 
 function charTabInner(tab, unlocked, active) {
