@@ -3,243 +3,110 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0a0a0f">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>暗影纪元：放置编年史</title>
-  <script>
-  (function () {
-    function detectMobileUi() {
-      const w = window.innerWidth || document.documentElement.clientWidth || 0;
-      const h = window.innerHeight || document.documentElement.clientHeight || 0;
-      const short = Math.min(w, h);
-      const coarse = window.matchMedia('(pointer: coarse)').matches;
-      const noHover = window.matchMedia('(hover: none)').matches;
-      const ua = navigator.userAgent || '';
-      const phone = /Android.*Mobile|iPhone|iPod|webOS|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua)
-        && !/iPad|Tablet/i.test(ua);
-      const tablet = /iPad|Tablet|Android(?!.*Mobile)/i.test(ua)
-        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      if (phone) return true;
-      if (w <= 900) return true;
-      if ((tablet || coarse || noHover) && w < 1100) return true;
-      if ((coarse || noHover) && short < 700) return true;
-      return false;
-    }
-    function applyUiMode() {
-      const mobile = detectMobileUi();
-      document.documentElement.dataset.ui = mobile ? 'mobile' : 'desktop';
-    }
-    applyUiMode();
-    window.__detectMobileUi = detectMobileUi;
-    window.__applyUiMode = applyUiMode;
-  })();
-  </script>
-  <link rel="stylesheet" href="css/style.css?v=152">
+  <meta name="theme-color" content="#0a0a10">
+  <title>暗影防线 · 八方塔防</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
-<body data-mview="combat">
+<body>
   <div class="app">
-    <header class="header">
-      <div class="logo">
-        <h1>暗影纪元</h1>
-        <span class="subtitle">放置编年史 · 45° 等距挂机</span>
+    <header class="top">
+      <div class="brand">
+        <h1>暗影防线</h1>
+        <span>八方塔防 · 守住核心</span>
       </div>
-      <div class="header-actions">
-        <button type="button" id="btn-town-m" class="btn-head mobile-only">据点</button>
-        <button type="button" id="btn-reset-save" class="btn btn-danger">还原数据</button>
+      <div class="res-bar" aria-label="资源">
+        <span class="pill gold">金币 <b id="res-gold">0</b></span>
+        <span class="pill stone">石材 <b id="res-stone">0</b></span>
+        <span class="pill mineral">矿物 <b id="res-mineral">0</b></span>
+        <span class="pill wood">木材 <b id="res-wood">0</b></span>
+        <span class="pill mana">魔能 <b id="res-mana">0</b></span>
+      </div>
+      <div class="top-actions">
+        <button type="button" id="btn-help" class="btn ghost">规则</button>
+        <button type="button" id="btn-restart" class="btn ghost">重开</button>
       </div>
     </header>
 
-    <main class="main-grid">
-      <section class="panel hero-panel" id="camp-panel">
-        <div class="camp-scroll">
-        <div class="camp-head">
-          <div>
-            <button type="button" id="btn-shop" class="btn-head">
-              <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M1 14h14v1H1zm1-1h12V7H2zm1-6h2V5H3zm4 0h2V5H7zm4 0h2V5h-2zM2 4l6-3 6 3v1H2z"/></svg>
-              据点
-            </button>
-            <div id="hero-name" class="hero-name">狂战士 Lv.1</div>
-          </div>
-          <div class="camp-head-right">
-            <div id="hero-status" class="status dead" hidden></div>
-            <button type="button" class="btn-small" id="btn-skills">技能</button>
-          </div>
-        </div>
-        <div class="hp-container">
-          <div class="hp-bar-bg"><div id="hero-hp-bar" class="hp-bar hero-hp"></div></div>
-          <span id="hero-hp-text">120 / 120</span>
-        </div>
-        <div class="hp-container res-container">
-          <div class="hp-bar-bg"><div id="hero-res-bar" class="hp-bar hero-res"></div></div>
-          <span id="hero-res-text">魔法 0 / 100</span>
-        </div>
-        <div class="exp-container camp-exp">
-          <div class="exp-bar-bg"><div id="exp-bar" class="exp-bar"></div></div>
-          <span id="exp-text" class="exp-text">经验 0 / 500</span>
-          <span id="exp-pen" class="exp-pen" hidden></span>
-        </div>
-        <div class="camp-mid">
-          <div id="equip-slots" class="d2-doll"></div>
-        </div>
-        <div id="set-preview" class="set-preview"></div>
-        <div class="camp-inv-head">
-          <div class="camp-inv-title">
-            <span>背包 <span id="inv-count">0/24</span></span>
-            <div class="bag-expand-wrap">
-              <button type="button" class="btn-small" id="btn-bag-expand">扩容</button>
-              <span id="bag-expand-hint" class="bag-expand-hint" hidden>材料不足</span>
-            </div>
-            <div class="autosell-wrap">
-              <button type="button" class="btn-small" id="btn-autosell">自动出售</button>
-              <div id="autosell-pop" class="autosell-pop" hidden>
-                <div class="as-scope">仅当前角色 · 与地图进度分开保存</div>
-                <button type="button" class="as-opt as-off" data-as="off">关闭自动处理</button>
-                <div class="as-acts">
-                  <button type="button" class="as-opt" data-as-act="sell">处理：出售</button>
-                  <button type="button" class="as-opt" data-as-act="salvage">处理：分解</button>
-                </div>
-                <div id="autosell-opts" class="as-opts"></div>
-                <label class="as-ilvl">装备等级 ≥
-                  <input id="as-ilvl" type="number" min="0" max="99" step="1" value="0">
-                  不处理（0=不限）
-                </label>
-                <label class="as-keep"><input type="checkbox" id="as-better"> 留更高DPS</label>
-              </div>
-            </div>
-          </div>
-          <div class="res-strip">
-            <span class="res gold">金 <span id="gold-amount">0</span></span>
-            <span class="res mat-metal">金属 <span id="mat-metal">0</span></span>
-            <span class="res mat-cloth">布 <span id="mat-cloth">0</span></span>
-            <span class="res mat-crystal">晶 <span id="mat-crystal">0</span></span>
-          </div>
-        </div>
-        <div id="camp-inv-filters" class="inv-filters"></div>
-        <div id="inv-bulk-bar" class="bulk-bar" hidden></div>
-        <div class="inv-pager">
-          <button type="button" class="btn-small" id="inv-prev">上一页</button>
-          <span id="inv-page-label">1/1</span>
-          <button type="button" class="btn-small" id="inv-next">下一页</button>
-        </div>
-        <div id="camp-inv" class="inv-grid"></div>
-        </div>
-        <div class="camp-inv-tools">
-          <button type="button" class="btn-small" id="btn-sort">整理</button>
-          <button type="button" class="btn-small" id="btn-inv-multi">多选</button>
-          <select id="junk-q" class="sel-inline" title="装备筛选"></select>
-          <button type="button" class="btn-small" id="btn-sell-junk">出售</button>
-          <button type="button" class="btn-small" id="btn-salvage-junk">分解</button>
-        </div>
-      </section>
+    <section class="status">
+      <div class="stat">
+        <span>波次</span>
+        <strong id="wave-num">0</strong>
+        <em id="wave-next">下一波 1 · 精英 · 2 路</em>
+      </div>
+      <div class="stat core">
+        <span>核心耐久</span>
+        <div class="bar"><i id="core-bar"></i></div>
+        <strong id="core-hp">100 / 100</strong>
+      </div>
+      <div class="stat nums">
+        <span>击杀 <b id="stat-kills">0</b></span>
+        <span>漏怪 <b id="stat-leaked">0</b></span>
+        <span>最高波 <b id="stat-best">0</b></span>
+      </div>
+      <div class="stat controls">
+        <button type="button" id="btn-wave" class="btn primary">开始第 1 波</button>
+        <button type="button" id="btn-pause" class="btn">暂停</button>
+        <button type="button" id="btn-speed" class="btn">1×</button>
+        <div id="prepare" class="prepare" hidden></div>
+      </div>
+    </section>
 
-      <section class="panel combat-panel">
-        <div class="map-info">
-          <h2 id="current-map-name">荒芜平原</h2>
-          <span id="map-level-range" class="map-level">怪物 Lv.1–6</span>
-        </div>
-        <div class="combat-stage">
-          <canvas id="iso-canvas" class="iso-canvas" width="720" height="420"></canvas>
-          <div class="combat-hud">
-            <div class="monster-display compact">
-              <div class="monster-title-row">
-                <div id="monster-name" class="monster-name">搜寻目标…</div>
-                <span id="monster-kind" class="monster-kind"></span>
-              </div>
-              <div class="hp-container">
-                <div class="hp-bar-bg"><div id="monster-hp-bar" class="hp-bar monster-hp"></div></div>
-                <span id="monster-hp-text">—</span>
-              </div>
-              <div id="boss-winrate" class="boss-winrate" style="display:none"></div>
-            </div>
-            <div id="kill-counter" class="kill-counter">击杀 0 / 80</div>
-          </div>
-          <div id="combat-buffs" class="combat-buffs"></div>
-          <div id="combat-skills" class="combat-skills" aria-label="主动技能"></div>
-        </div>
-        <div class="char-switch">
-          <div class="char-switch-label">角色切换</div>
-          <div id="char-tabs" class="char-tabs" role="tablist" aria-label="切换角色"></div>
-        </div>
-        <div class="combat-logs">
-          <div class="combat-log-pane">
-            <div class="combat-log-title">战斗数据</div>
-            <div id="combat-log" class="combat-log" aria-label="战斗数据"></div>
-          </div>
-          <div class="combat-log-pane">
-            <div class="combat-log-title">掉落数据</div>
-            <div id="loot-log" class="combat-log" aria-label="掉落数据"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel stats-panel">
-        <div class="stats-head">
-          <h2 id="attr-page-title">效率｜属性</h2>
-          <span class="attr-pager">
-            <button type="button" class="btn-tiny" id="attr-prev">‹</button>
-            <span id="attr-page-label">1/4</span>
-            <button type="button" class="btn-tiny" id="attr-next">›</button>
-          </span>
-          <button type="button" id="btn-offline" class="btn-small btn-offline">离线收益</button>
-        </div>
-        <div id="camp-attrs" class="camp-attrs"></div>
-        <h2 class="map-head">地图
-          <label class="map-auto"><input type="checkbox" id="chk-auto-next-map"> 自动下一图</label>
-        </h2>
-        <div id="map-select" class="map-select">
-          <div id="diff-select" class="diff-select"></div>
-          <div id="map-acts" class="map-acts"></div>
-          <div id="map-list" class="map-list"></div>
-        </div>
-      </section>
+    <main class="stage">
+      <canvas id="field" class="field" width="720" height="720"></canvas>
+      <div id="build-hint" class="build-hint" hidden></div>
     </main>
 
-    <footer class="footer">
-      <span>暗影纪元 GDD v1.1</span>
-      <span>等距像素挂机 · 七职业 · 暗金性态 · 自动出售</span>
-    </footer>
-  </div>
-
-  <nav id="mobile-nav" class="mobile-nav" aria-label="手机导航">
-    <button type="button" data-mview="combat" class="on">战场</button>
-    <button type="button" data-mview="camp">营地</button>
-    <button type="button" data-mview="maps">地图</button>
-  </nav>
-
-  <div id="town-overlay" class="town-overlay">
-    <div class="town-sheet">
-      <nav id="town-nav" class="town-map" aria-label="据点地图"></nav>
-      <div class="town-main">
-        <div class="town-head">
-          <div>
-            <h2 id="town-title">荒村据点</h2>
-            <p class="hint">出征未暂停。点地图建筑办理。</p>
-          </div>
-          <button type="button" class="btn btn-town-leave" id="town-close">返回出征</button>
-        </div>
-        <div id="town-room" class="town-room"></div>
+    <aside class="side">
+      <div class="shop-tabs">
+        <button type="button" class="shop-tab on" data-tab="combat">战斗型</button>
+        <button type="button" class="shop-tab" data-tab="support">辅助型</button>
       </div>
+      <div id="shop-list" class="shop-list" data-tab="combat">
+        <div id="shop-combat" class="shop-pane"></div>
+        <div id="shop-support" class="shop-pane"></div>
+      </div>
+      <div class="detail-wrap">
+        <div id="tower-detail" class="detail"></div>
+        <div class="detail-actions">
+          <button type="button" id="btn-upgrade" class="btn primary" disabled>升级 U</button>
+          <button type="button" id="btn-sell" class="btn" disabled>拆除</button>
+          <button type="button" id="btn-target" class="btn" disabled>目标：首只</button>
+        </div>
+      </div>
+      <div id="combat-log" class="log" aria-label="战报"></div>
+    </aside>
+  </div>
+
+  <div id="help-overlay" class="overlay">
+    <div class="sheet">
+      <h2>玩法</h2>
+      <p>怪物从<strong>上 / 下 / 左 / 右 / 左上 / 左下 / 右上 / 右下</strong>八个方位沿道路冲向中央核心。核心耐久归零即失败。地图边角<strong>红色闪烁的裂口</strong>是本波进攻方向。</p>
+      <ul>
+        <li>波次越高，普通怪的<strong>血量</strong>与<strong>防御</strong>越高。</li>
+        <li>每波都有<strong>精英</strong>（体型 ×2）。</li>
+        <li>第 3、13、23… 与第 7、17、27… 波出现<strong>小 Boss</strong>（体型 ×3）。</li>
+        <li>每 5 波一个<strong>Boss</strong>（体型 ×4）；每 10 波改为<strong>强力 Boss</strong>（体型 ×6），会释放封印 / 弱化，克制战斗塔。</li>
+        <li>战斗塔：近战 AOE、远程单体速射、魔法 AOE / 单体特效。</li>
+        <li>辅助塔：战鼓/鹰眼/砺石强化周围战斗塔；金矿/石场/矿场/伐木场/魔能炉加速资源。</li>
+        <li>金币通用；石材主近战升级；矿物主近战与远程；木材主远程与魔法；魔能主魔法，精英与 Boss 更易掉落。</li>
+      </ul>
+      <p class="dim">快捷键：1–9 选塔，N 下一波，空格暂停，U 升级，Esc 取消，右键取消放置。</p>
+      <button type="button" id="help-close" class="btn primary">知道了</button>
     </div>
   </div>
 
-  <div id="item-tip" class="item-tip" hidden></div>
-  <div id="build-pop" class="autosell-pop build-pop" hidden></div>
-
-  <div id="modal" class="modal">
-    <div class="modal-overlay"></div>
-    <div class="modal-content">
-      <h2 id="modal-title"></h2>
-      <div id="modal-body"></div>
-      <button class="modal-close" onclick="document.getElementById('modal').classList.remove('open')">✕</button>
+  <div id="go-overlay" class="overlay">
+    <div class="sheet">
+      <h2>核心碎裂</h2>
+      <p id="go-text"></p>
+      <button type="button" id="go-restart" class="btn primary">再守一次</button>
     </div>
   </div>
 
-  <script src="js/data.js?v=152"></script>
-  <script src="js/catalog.js?v=152"></script>
-  <script src="js/combat.js?v=152"></script>
-  <script src="js/iso.js?v=152"></script>
-  <script src="js/game.js?v=152"></script>
-  <script src="js/ui.js?v=152"></script>
-  <script src="js/main.js?v=152"></script>
+  <script src="js/data.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
 </body>
 </html>
