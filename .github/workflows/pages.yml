@@ -25,9 +25,12 @@ jobs:
       - uses: actions/configure-pages@v5
       - name: Pack static site
         run: |
-          mkdir -p _site
+          mkdir -p _site "_site/games/塔防"
           cp index.html _site/
           cp -R css js _site/
+          if [ -d docs ]; then cp -R docs _site/; fi
+          cp "games/塔防/index.html" "_site/games/塔防/"
+          cp -R "games/塔防/css" "games/塔防/js" "_site/games/塔防/"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

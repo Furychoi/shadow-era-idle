@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a10">
+  <title>暗影防线 · 八方塔防</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <h1>暗影防线</h1>
+        <span>八方塔防 · 守住核心</span>
+      </div>
+      <div class="res-bar" aria-label="资源">
+        <span class="pill gold">金币 <b id="res-gold">0</b></span>
+        <span class="pill stone">石材 <b id="res-stone">0</b></span>
+        <span class="pill mineral">矿物 <b id="res-mineral">0</b></span>
+        <span class="pill wood">木材 <b id="res-wood">0</b></span>
+        <span class="pill mana">魔能 <b id="res-mana">0</b></span>
+      </div>
+      <div class="top-actions">
+        <button type="button" id="btn-help" class="btn ghost">规则</button>
+        <button type="button" id="btn-restart" class="btn ghost">重开</button>
+      </div>
+    </header>
+
+    <section class="status">
+      <div class="stat">
+        <span>波次</span>
+        <strong id="wave-num">0</strong>
+        <em id="wave-next">下一波 1 · 精英 · 2 路</em>
+      </div>
+      <div class="stat core">
+        <span>核心耐久</span>
+        <div class="bar"><i id="core-bar"></i></div>
+        <strong id="core-hp">100 / 100</strong>
+      </div>
+      <div class="stat nums">
+        <span>击杀 <b id="stat-kills">0</b></span>
+        <span>漏怪 <b id="stat-leaked">0</b></span>
+        <span>最高波 <b id="stat-best">0</b></span>
+      </div>
+      <div class="stat controls">
+        <button type="button" id="btn-wave" class="btn primary">开始第 1 波</button>
+        <button type="button" id="btn-pause" class="btn">暂停</button>
+        <button type="button" id="btn-speed" class="btn">1×</button>
+        <div id="prepare" class="prepare" hidden></div>
+      </div>
+    </section>
+
+    <main class="stage">
+      <canvas id="field" class="field" width="720" height="720"></canvas>
+      <div id="build-hint" class="build-hint" hidden></div>
+    </main>
+
+    <aside class="side">
+      <div class="shop-tabs">
+        <button type="button" class="shop-tab on" data-tab="combat">战斗型</button>
+        <button type="button" class="shop-tab" data-tab="support">辅助型</button>
+      </div>
+      <div id="shop-list" class="shop-list" data-tab="combat">
+        <div id="shop-combat" class="shop-pane"></div>
+        <div id="shop-support" class="shop-pane"></div>
+      </div>
+      <div class="detail-wrap">
+        <div id="tower-detail" class="detail"></div>
+        <div class="detail-actions">
+          <button type="button" id="btn-upgrade" class="btn primary" disabled>升级 U</button>
+          <button type="button" id="btn-sell" class="btn" disabled>拆除</button>
+          <button type="button" id="btn-target" class="btn" disabled>目标：首只</button>
+        </div>
+      </div>
+      <div id="combat-log" class="log" aria-label="战报"></div>
+    </aside>
+  </div>
+
+  <div id="help-overlay" class="overlay">
+    <div class="sheet">
+      <h2>玩法</h2>
+      <p>怪物从<strong>上 / 下 / 左 / 右 / 左上 / 左下 / 右上 / 右下</strong>八个方位沿道路冲向中央核心。核心耐久归零即失败。地图边角<strong>红色闪烁的裂口</strong>是本波进攻方向。</p>
+      <ul>
+        <li>波次越高，普通怪的<strong>血量</strong>与<strong>防御</strong>越高。</li>
+        <li>每波都有<strong>精英</strong>（体型 ×2）。</li>
+        <li>第 3、13、23… 与第 7、17、27… 波出现<strong>小 Boss</strong>（体型 ×3）。</li>
+        <li>每 5 波一个<strong>Boss</strong>（体型 ×4）；每 10 波改为<strong>强力 Boss</strong>（体型 ×6），会释放封印 / 弱化，克制战斗塔。</li>
+        <li>战斗塔：近战 AOE、远程单体速射、魔法 AOE / 单体特效。</li>
+        <li>辅助塔：战鼓/鹰眼/砺石强化周围战斗塔；金矿/石场/矿场/伐木场/魔能炉加速资源。</li>
+        <li>金币通用；石材主近战升级；矿物主近战与远程；木材主远程与魔法；魔能主魔法，精英与 Boss 更易掉落。</li>
+      </ul>
+      <p class="dim">快捷键：1–9 选塔，N 下一波，空格暂停，U 升级，Esc 取消，右键取消放置。</p>
+      <button type="button" id="help-close" class="btn primary">知道了</button>
+    </div>
+  </div>
+
+  <div id="go-overlay" class="overlay">
+    <div class="sheet">
+      <h2>核心碎裂</h2>
+      <p id="go-text"></p>
+      <button type="button" id="go-restart" class="btn primary">再守一次</button>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
