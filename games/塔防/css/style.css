@@ -109,6 +109,8 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 7px 12px;
+  text-decoration: none;
+  display: inline-block;
 }
 .btn:hover { border-color: var(--accent); }
 .btn:disabled { opacity: 0.45; cursor: default; }

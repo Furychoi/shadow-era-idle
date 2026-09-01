@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# 从仓库根目录起静态服务，目录页与两个游戏都能打开
+# 本机 / 局域网试玩（手机连同一 Wi-Fi 即可）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PORT="${PORT:-8080}"
-echo "目录:     http://127.0.0.1:${PORT}"
-echo "放置RPG:  http://127.0.0.1:${PORT}/games/放置RPG/"
-echo "塔防:     http://127.0.0.1:${PORT}/games/塔防/"
+echo "本机:     http://127.0.0.1:${PORT}"
 if command -v ipconfig >/dev/null 2>&1; then
   IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
   if [ -n "${IP:-}" ]; then
