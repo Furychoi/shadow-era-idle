@@ -25,12 +25,12 @@ jobs:
       - uses: actions/configure-pages@v5
       - name: Pack static site
         run: |
-          mkdir -p _site "_site/games/放置RPG" "_site/games/塔防"
+          mkdir -p _site "_site/games/放置" "_site/games/塔防"
           cp index.html _site/
           cp -R css _site/
-          cp "games/放置RPG/index.html" "_site/games/放置RPG/"
-          cp -R "games/放置RPG/css" "games/放置RPG/js" "_site/games/放置RPG/"
-          if [ -d "games/放置RPG/docs" ]; then cp -R "games/放置RPG/docs" "_site/games/放置RPG/"; fi
+          cp "games/放置/index.html" "_site/games/放置/"
+          cp -R "games/放置/css" "games/放置/js" "_site/games/放置/"
+          if [ -d "games/放置/docs" ]; then cp -R "games/放置/docs" "_site/games/放置/"; fi
           cp "games/塔防/index.html" "_site/games/塔防/"
           cp -R "games/塔防/css" "games/塔防/js" "_site/games/塔防/"
       - uses: actions/upload-pages-artifact@v3

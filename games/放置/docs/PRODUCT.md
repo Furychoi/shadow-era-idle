@@ -13,7 +13,7 @@
 |---|---|
 | 形态 | 静态 HTML/CSS/JS，可 GitHub Pages 托管 |
 | 存档 | `localStorage` 键 `shadow-era-save-v11` |
-| 公网 | https://furychoi.github.io/shadow-era-idle/games/放置RPG/ |
+| 公网 | https://furychoi.github.io/shadow-era-idle/games/放置/ |
 | 本机 | `./scripts/serve.sh` 或任意静态服务（勿用 `file://`） |
 
 玩家要做的循环：**出征刷图 → 掉装备 → 换装/出售/分解 → 强化 Build → 打更高难度与章节 Boss → 多角色同时挂机**。

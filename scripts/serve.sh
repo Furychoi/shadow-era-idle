@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 PORT="${PORT:-8080}"
 echo "目录:     http://127.0.0.1:${PORT}"
-echo "放置RPG:  http://127.0.0.1:${PORT}/games/放置RPG/"
+echo "放置:     http://127.0.0.1:${PORT}/games/放置/"
 echo "塔防:     http://127.0.0.1:${PORT}/games/塔防/"
 if command -v ipconfig >/dev/null 2>&1; then
   IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
